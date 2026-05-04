@@ -1,5 +1,5 @@
 // =============================================================================
-// Grid — datový + render layer pro mřížku 10×10.
+// Grid — datový + render layer pro mřížku GRID_SIZE × GRID_SIZE.
 //
 // Drží 2D pole typeId (TILE_TYPES.id), generované deterministicky ze seedu
 // (= stejná mapa při každém reloadu). Vykreslí všechny dlaždice jako sprity
@@ -13,8 +13,9 @@ import { TILE_TYPES } from './palette.js';
 import { tileToScreen } from './iso.js';
 import { createTileSprite, createTileGraphic } from './tiles.js';
 
-// Velikost mřížky pro MVP. Kdykoliv změníš, přepočti i mapu (re-seed).
-export const GRID_SIZE = 10;
+// Velikost mřížky. Kdykoliv změníš, mapa se přegeneruje ze seedu.
+// Pozor: počet dlaždic roste kvadraticky (100×100 = 10 000).
+export const GRID_SIZE = 100;
 
 /**
  * Mulberry32 — jednoduchý deterministický PRNG.

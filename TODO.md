@@ -6,7 +6,6 @@
 
 ## Next
 - [ ] DIARY.md / DONE.md / GLOSSARY.md — dle preference (KISS odložené, otázka stále otevřená)
-- [ ] Větší mapa než 10×10
 - [ ] První žánrový prvek (těžba / dopravník / stavba)
 
 ## Later
@@ -15,6 +14,7 @@
 - [ ] Auto-tiling (Wang / blob tiles) pro hraniční přechody
 
 ## Done
+- [x] **Větší mapa 100×100** — `GRID_SIZE` v `grid.ts`, 10k dlaždic, FPS OK
 - [x] **Procedurální Graphics dlaždice** — `createTileGraphic` v `tiles.ts`, render bez závislosti na PNG
 - [x] **Diagnostika sprite drift** — atlas v1 (Gemini) má per-typ nekonzistentní diamond shape → sprite path zaparkován
 - [x] **Pipeline `scripts/process_atlas.py`** — připravená pro v2 atlas (CC cleanup, magenta→alpha, Y-squash, padding na 128×128)

@@ -78,4 +78,10 @@ PNG dlaždice v `public/assets/terrain/`:
 Default podle globálního `~/.claude/CLAUDE.md`.
 
 ## Makra
-Žádný projektový override. Platí globální definice z `~/.claude/PROMPTS.md`.
+
+### `@END` — konec sezení
+1. Úklid (debug výpisy, mrtvý kód, dočasné soubory).
+2. Dokumentace — aktualizuj `TODO.md` (Done sekce), případně další `*.md` dotčené sezením. (DIARY.md zatím KISS odložen.)
+3. `git add` jen relevantní soubory (NE `package-lock.json` po `npm install`, pokud se změnil jen vedlejším efektem).
+4. Commit s popisem sezení + push.
+5. Stop dev serveru, pokud běží.

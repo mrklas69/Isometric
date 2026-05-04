@@ -4,7 +4,7 @@
 // Pořadí:
 //   1. Inicializace PIXI.Application (v8 vyžaduje await app.init).
 //   2. Vytvoření world Container (cíl kamery — pan/zoom transformuje jen ten).
-//   3. Generování gridu (10×10 dlaždic).
+//   3. Generování gridu (GRID_SIZE × GRID_SIZE dlaždic).
 //   4. Highlight overlay nad gridem.
 //   5. Camera + Input + HUD setup.
 //   6. Animační smyčka přes app.ticker.
