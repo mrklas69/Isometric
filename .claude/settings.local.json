@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Test-Path \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\"; \\(Get-ChildItem \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\" -Force -ErrorAction SilentlyContinue | Measure-Object\\).Count)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\.claude\" -Force -Recurse | Format-Table Mode, FullName -AutoSize | Out-String; \"---\"; Get-ChildItem \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\.source\" -Force -Recurse | Format-Table Mode, FullName -AutoSize | Out-String)",
+      "PowerShell(Get-Item *)",
+      "PowerShell(npm *)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -Last 30)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(Test-Path \"C:\\\\Users\\\\mrkla\\\\Downloads\\\\Gemini_Generated_Image_8i31i98i31i98i31.png\"; \\(Get-Item \"C:\\\\Users\\\\mrkla\\\\Downloads\\\\Gemini_Generated_Image_8i31i98i31i98i31.png\" -ErrorAction SilentlyContinue\\).Length)",
+      "PowerShell(python \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\scripts\\\\process_atlas.py\")",
+      "PowerShell(python -c \"import scipy; print\\('scipy', scipy.__version__\\)\" 2>&1)",
+      "PowerShell(python \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\scripts\\\\debug_sparkle.py\")",
+      "PowerShell(python \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\scripts\\\\measure_anchor.py\")",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -Last 20)",
+      "PowerShell(python \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\scripts\\\\debug_shape.py\" 2>&1 | Out-String)",
+      "PowerShell(python \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\scripts\\\\measure_diamond.py\")",
+      "PowerShell(Get-Clipboard *)",
+      "PowerShell(Add-Type -AssemblyName System.Windows.Forms; $img = [System.Windows.Forms.Clipboard]::GetImage\\(\\); if \\($img\\) { $path = \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\.source\\\\clipboard.png\"; $img.Save\\($path, [System.Drawing.Imaging.ImageFormat]::Png\\); \"saved: $path \\($\\($img.Width\\)x$\\($img.Height\\)\\)\" } else { \"no image in clipboard\" })",
+      "PowerShell(Add-Type -AssemblyName System.Windows.Forms; $img = [System.Windows.Forms.Clipboard]::GetImage\\(\\); if \\($img\\) { $path = \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\.source\\\\clipboard.png\"; $img.Save\\($path, [System.Drawing.Imaging.ImageFormat]::Png\\); \"saved: $path \\($\\($img.Width\\)x$\\($img.Height\\)\\)\" } else { \"no image\" })",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -Last 10)",
+      "PowerShell(Add-Type -AssemblyName System.Windows.Forms; $img = [System.Windows.Forms.Clipboard]::GetImage\\(\\); if \\($img\\) { $path = \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\.source\\\\clipboard.png\"; $img.Save\\($path, [System.Drawing.Imaging.ImageFormat]::Png\\); \"saved $\\($img.Width\\)x$\\($img.Height\\)\" } else { \"no image\" })",
+      "PowerShell(python -c \"from PIL import Image; im = Image.open\\(r'C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\.source\\\\clipboard.png'\\); im.crop\\(\\(550, 600, 920, 880\\)\\).save\\(r'C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\.source\\\\clipboard_99.png'\\); im.crop\\(\\(40, 30, 380, 250\\)\\).save\\(r'C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\.source\\\\clipboard_00.png'\\); print\\('cropped'\\)\")",
+      "PowerShell(python \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\scripts\\\\process_atlas.py\"; \"---\"; python \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\scripts\\\\measure_diamond.py\")",
+      "PowerShell(python \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\scripts\\\\verify_squash.py\")",
+      "PowerShell(Add-Type -AssemblyName System.Windows.Forms; $img = [System.Windows.Forms.Clipboard]::GetImage\\(\\); if \\($img\\) { $img.Save\\(\"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\.source\\\\clipboard.png\", [System.Drawing.Imaging.ImageFormat]::Png\\); \"saved $\\($img.Width\\)x$\\($img.Height\\)\" } else { \"no image\" })",
+      "PowerShell(python \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\scripts\\\\inspect_png.py\")",
+      "PowerShell(python \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\scripts\\\\compare_shapes.py\")",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -Last 5)"
+    ]
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "tiles": {
+    "grass": {
+      "file": "grass01.png",
+      "width": 128,
+      "height": 128,
+      "contentHeight": 103,
+      "halfHMeasured": 37,
+      "squashFactor": 0.8649
+    },
+    "dirt": {
+      "file": "dirt01.png",
+      "width": 128,
+      "height": 128,
+      "contentHeight": 98,
+      "halfHMeasured": 39,
+      "squashFactor": 0.8205
+    },
+    "water": {
+      "file": "water01.png",
+      "width": 128,
+      "height": 128,
+      "contentHeight": 98,
+      "halfHMeasured": 39,
+      "squashFactor": 0.8205
+    },
+    "farmland": {
+      "file": "farmland01.png",
+      "width": 128,
+      "height": 128,
+      "contentHeight": 100,
+      "halfHMeasured": 40,
+      "squashFactor": 0.8
+    },
+    "forest": {
+      "file": "forest01.png",
+      "width": 128,
+      "height": 128,
+      "contentHeight": 127,
+      "halfHMeasured": 32,
+      "squashFactor": 1.0
+    },
+    "mountain": {
+      "file": "mountain01.png",
+      "width": 128,
+      "height": 128,
+      "contentHeight": 90,
+      "halfHMeasured": 45,
+      "squashFactor": 0.7111
+    },
+    "hills": {
+      "file": "hills01.png",
+      "width": 128,
+      "height": 128,
+      "contentHeight": 99,
+      "halfHMeasured": 39,
+      "squashFactor": 0.8205
+    },
+    "wetlands": {
+      "file": "wetlands01.png",
+      "width": 128,
+      "height": 128,
+      "contentHeight": 90,
+      "halfHMeasured": 45,
+      "squashFactor": 0.7111
+    }
+  },
+  "targetHalfH": 32
+}
