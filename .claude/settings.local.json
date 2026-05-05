@@ -26,7 +26,9 @@
       "PowerShell(Add-Type -AssemblyName System.Windows.Forms; $img = [System.Windows.Forms.Clipboard]::GetImage\\(\\); if \\($img\\) { $img.Save\\(\"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\.source\\\\clipboard.png\", [System.Drawing.Imaging.ImageFormat]::Png\\); \"saved $\\($img.Width\\)x$\\($img.Height\\)\" } else { \"no image\" })",
       "PowerShell(python \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\scripts\\\\inspect_png.py\")",
       "PowerShell(python \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\scripts\\\\compare_shapes.py\")",
-      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -Last 5)"
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -Last 5)",
+      "Bash(npm run *)",
+      "Bash(npx tsc *)"
     ]
   }
 }

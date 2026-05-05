@@ -50,13 +50,28 @@ export function createTileSprite(typeId: number, textures: Texture[]): Sprite {
 }
 
 /**
- * DEBUG — vyrobí Graphics dlaždici procedurálně (top diamond + 2 bočnice).
+ * Vyrobí Graphics dlaždici procedurálně (top diamond + 2 bočnice).
+ *
  * Top corner v lokálních souřadnicích (0, 0) — po `g.position.set(X, Y)`
- * je top corner přesně v (X, Y). Tj. RENDER PATH JE NEZÁVISLÁ na sprite/texture
- * pipeline. Pokud i takhle vidíme schody, bug je v iso math nebo container
- * transformu, ne v sprite anchor / squash measurement.
+ * je top corner přesně v (X, Y).
+ *
+ * **Cliff faces (Fáze 2.1.5)**: V izometrii vidíme jen jižní polovinu bočnic
+ * (BR + BL). Jejich výška = výškový rozdíl k sousedovi pod nimi:
+ *   - cliffRight (BR face) = max(0, z(i,j) - z(i+1, j)) * PIXELS_PER_LEVEL
+ *   - cliffLeft  (BL face) = max(0, z(i,j) - z(i, j+1)) * PIXELS_PER_LEVEL
+ *
+ * Default `TILE_DEPTH` (= 32 px) se používá pro `procedural.ts` (texture gen
+ * nezná sousedy → fixed depth). Grid předává explicitně spočítané hodnoty.
+ *
+ * @param typeId      index v TILE_TYPES (0..7)
+ * @param cliffRight  výška BR cliff face v px (vůči SE sousedovi)
+ * @param cliffLeft   výška BL cliff face v px (vůči SW sousedovi)
  */
-export function createTileGraphic(typeId: number): Graphics {
+export function createTileGraphic(
+  typeId: number,
+  cliffRight: number = TILE_DEPTH,
+  cliffLeft: number = TILE_DEPTH,
+): Graphics {
   const def = TILE_TYPES[typeId];
   if (!def) {
     throw new Error(`Neznámý typ dlaždice: ${typeId}`);
@@ -70,19 +85,24 @@ export function createTileGraphic(typeId: number): Graphics {
 
   // Bočnice první (z-order: nakresleno PŘED top diamondem v rámci jediného
   // Graphics — top diamond je překryje, jak má).
-  g.poly([
-    -HALF_W, HALF_H,
-    0,       TILE_H,
-    0,       TILE_H + TILE_DEPTH,
-    -HALF_W, HALF_H + TILE_DEPTH,
-  ]).fill(sideLeft);
+  // Když je cliff = 0 (rovinní sousedi), face neexistuje — vůbec nekreslíme.
+  if (cliffLeft > 0) {
+    g.poly([
+      -HALF_W, HALF_H,                  // left corner
+      0,       TILE_H,                  // bottom corner
+      0,       TILE_H + cliffLeft,      // bottom-down
+      -HALF_W, HALF_H + cliffLeft,      // left-down
+    ]).fill(sideLeft);
+  }
 
-  g.poly([
-    0,      TILE_H,
-    HALF_W, HALF_H,
-    HALF_W, HALF_H + TILE_DEPTH,
-    0,      TILE_H + TILE_DEPTH,
-  ]).fill(sideRight);
+  if (cliffRight > 0) {
+    g.poly([
+      0,      TILE_H,                   // bottom corner
+      HALF_W, HALF_H,                   // right corner
+      HALF_W, HALF_H + cliffRight,      // right-down
+      0,      TILE_H + cliffRight,      // bottom-down
+    ]).fill(sideRight);
+  }
 
   // Top diamond
   g.poly([

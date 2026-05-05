@@ -22,19 +22,26 @@ export const HALF_H = TILE_H / 2;
 // + 2 bočnice). Používá createTileGraphic + makeProceduralTextures.
 export const TILE_DEPTH = 32;
 
+// Vertikální posun per úroveň výšky (Fáze 2.1). Tile s z=N je o `N * PIXELS_PER_LEVEL`
+// pixelů VÝŠ na obrazovce (= menší y) než tile s z=0. 8 px = poloha mezi 2:1
+// HALF_H (32) a TILE_DEPTH (32) → max výškový rozdíl 15 levels = 120 px ≈ 2× tile width.
+export const PIXELS_PER_LEVEL = 8;
+
 /**
  * Převod tile souřadnic na screen pixel pozici.
  *
  * Vzorec: top-corner kosočtverce dlaždice (i, j) je v
  *   x = (i - j) * HALF_W
- *   y = (i + j) * HALF_H
+ *   y = (i + j) * HALF_H - z * PIXELS_PER_LEVEL
  *
  * Top-corner = nejvyšší bod kosočtverce (špička nahoře).
+ *
+ * @param z  výška tile (default 0 = flat svět). Vyšší z = menší screen y (výš).
  */
-export function tileToScreen(i: number, j: number): { x: number; y: number } {
+export function tileToScreen(i: number, j: number, z: number = 0): { x: number; y: number } {
   return {
     x: (i - j) * HALF_W,
-    y: (i + j) * HALF_H,
+    y: (i + j) * HALF_H - z * PIXELS_PER_LEVEL,
   };
 }
 

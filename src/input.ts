@@ -13,8 +13,8 @@
 import type { Camera } from './camera.js';
 import type { Grid } from './grid.js';
 import type { Container, Graphics } from 'pixi.js';
-import { screenToTile, HALF_W, HALF_H } from './iso.js';
-import { GRID_SIZE } from './grid.js';
+import { screenToTile, HALF_W, HALF_H, PIXELS_PER_LEVEL } from './iso.js';
+import { GRID_SIZE, Z_MIN, Z_MAX } from './grid.js';
 
 // Stisknuté klávesy — bool flagy, čteme je v každém frame.
 // Pattern převzatý z PocketStory/Stickman (board.js _keys, BasicScene).
@@ -86,26 +86,40 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
 
     const w = camera.screenToWorld(screenX, screenY);
 
-    // tileToScreen vrací TOP corner kosočtverce; chceme aby kurzor uprostřed
-    // dlaždice se mapoval správně → posuň y o -HALF_H.
-    const t = screenToTile(w.x, w.y - HALF_H);
-    const i = Math.floor(t.i + 0.5);
-    const j = Math.floor(t.j + 0.5);
+    // ── Pickování s výškou (Fáze 2.1.7) ──────────────────────────────────
+    // Princip: tile s výškou z má top corner posunutý NAHORU o z*PIXELS_PER_LEVEL
+    // (= menší y). Pro virtuální flat-space pozici kurzoru posuneme y opačně
+    // (+z*PIXELS_PER_LEVEL). screenToTile pak vrátí (i, j) jako kdyby tile byl
+    // flat. Pokud skutečné tileHeight[i][j] === z, máme hit.
+    //
+    // Iterujeme z=Z_MAX → Z_MIN: první match (= nejvyšší tile pod kurzorem)
+    // vyhrává. Tj. pokud výškový tile pokrývá nižší tile, vybereme výš.
+    //
+    // Edge case: kurzor uprostřed cliff face (= mezi top diamondy dvou tiles)
+    // → žádný match → highlight.visible = false. Nemůžeme z cliff face určit
+    // tile bez extra geometrie; KISS = na cliff face neřešíme.
+    for (let z = Z_MAX; z >= Z_MIN; z--) {
+      // tileToScreen vrací TOP corner; pro tile center posuň y o -HALF_H.
+      const t = screenToTile(w.x, w.y + z * PIXELS_PER_LEVEL - HALF_H);
+      const i = Math.round(t.i);
+      const j = Math.round(t.j);
+      if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) continue;
+      if (grid.getHeightAt(i, j) !== z) continue;
 
-    if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) {
-      highlight.visible = false;
-    } else {
-      // Nastav highlight na top corner příslušné dlaždice.
+      // Hit — tile (i, j) má výšku z a kurzor je nad jeho top diamondem.
       const sx = (i - j) * HALF_W;
-      const sy = (i + j) * HALF_H;
+      const sy = (i + j) * HALF_H - z * PIXELS_PER_LEVEL;
       highlight.position.set(sx, sy);
       highlight.visible = true;
 
-      // Debug — pošleme do HUD třída tile (jméno) přes custom event.
       window.dispatchEvent(new CustomEvent('iso:hover', {
-        detail: { i, j, name: grid.getNameAt(i, j) },
+        detail: { i, j, z, name: grid.getNameAt(i, j) },
       }));
+      return;
     }
+
+    // Žádný tile pod kurzorem (mimo grid nebo nad cliff face).
+    highlight.visible = false;
   }
 
   target.addEventListener('mousemove', (e) => {

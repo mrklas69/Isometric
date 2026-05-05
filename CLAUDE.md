@@ -79,6 +79,12 @@ Default podle globálního `~/.claude/CLAUDE.md`.
 
 ## Makra
 
+### `@BEGIN` — začátek sezení
+Doplňuje globální `@BEGIN` o krok (5.) Server:
+- Spusť dev server na pozadí: `npm run dev` (Vite, default `http://localhost:5173/`).
+- URL sděl uživateli.
+- Pokud už server běží (port obsazený), nespouštěj druhý — jen oznam, že běží.
+
 ### `@END` — konec sezení
 1. Úklid (debug výpisy, mrtvý kód, dočasné soubory).
 2. Dokumentace — aktualizuj `TODO.md` (Done sekce), případně další `*.md` dotčené sezením. (DIARY.md zatím KISS odložen.)

@@ -23,9 +23,9 @@ export class Hud {
 
     // Listener na hover info z input.ts.
     window.addEventListener('iso:hover', (e: Event) => {
-      const ce = e as CustomEvent<{ i: number; j: number; name: string | null }>;
-      const { i, j, name } = ce.detail;
-      this.hoverText = ` | (${i}, ${j}) ${name ?? '?'}`;
+      const ce = e as CustomEvent<{ i: number; j: number; z: number; name: string | null }>;
+      const { i, j, z, name } = ce.detail;
+      this.hoverText = ` | (${i}, ${j}) z=${z} ${name ?? '?'}`;
     });
   }
 
