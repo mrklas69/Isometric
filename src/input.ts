@@ -17,6 +17,7 @@ import { screenToTile, HALF_W, HALF_H, PIXELS_PER_LEVEL } from './iso.js';
 import { GRID_SIZE, Z_MIN, Z_MAX } from './grid.js';
 import type { Inventory } from './inventory.js';
 import { RESOURCE_TYPES } from './resource.js';
+import type { Sim, SpeedMultiplier } from './sim.js';
 
 // Stisknuté klávesy — bool flagy, čteme je v každém frame.
 // Pattern převzatý z PocketStory/Stickman (board.js _keys, BasicScene).
@@ -45,6 +46,8 @@ export type InputContext = {
   selection: Graphics;
   /** Sdílený inventář — zapisuje se při sběru. */
   inventory: Inventory;
+  /** Sim — přepínáme rychlost klávesami 0/1/2/3. */
+  sim: Sim;
   /** Element kde poslouchat eventy (canvas). */
   target: HTMLCanvasElement;
 };
@@ -57,7 +60,17 @@ export type InputContext = {
  * posune target kamery, mouseup ukončí.
  */
 export function setupInput(ctx: InputContext): (dt: number) => void {
-  const { camera, grid, worldContainer, highlight, selection, inventory, target } = ctx;
+  const { camera, grid, worldContainer, highlight, selection, inventory, sim, target } = ctx;
+
+  // Mapování klávesa → speed multiplier (Fáze 4).
+  // Izomorfní řada 0/1/2/3 → 0×/1×/10×/100× (jeden způsob ovládání,
+  // místo míchání Space + číslic).
+  const SPEED_KEYS: Record<string, SpeedMultiplier> = {
+    '0': 0,
+    '1': 1,
+    '2': 10,
+    '3': 100,
+  };
 
   // Vybraná tile (Fáze 2.2.4). null = nic vybráno → selection.visible = false.
   let selectedTile: { i: number; j: number; z: number } | null = null;
@@ -104,6 +117,9 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
       // Esc = deselect (Fáze 2.2.4)
       selectedTile = null;
       updateSelectionGraphic();
+    } else if (e.key in SPEED_KEYS) {
+      // Klávesy 0/1/2/3 → sim speed (Fáze 4)
+      sim.setSpeed(SPEED_KEYS[e.key]);
     }
   });
   window.addEventListener('keyup', (e) => {

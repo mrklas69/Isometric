@@ -21,6 +21,7 @@ import { createInventory } from './inventory.js';
 import { buildTileCache } from './render-cache.js';
 import { RESOURCE_RECIPES } from './recipes.js';
 import { TILE_RECIPES } from './tile-recipes.js';
+import { Sim } from './sim.js';
 
 async function main(): Promise<void> {
   // ── PIXI Application ─────────────────────────────────────────────────
@@ -107,6 +108,12 @@ async function main(): Promise<void> {
   // v každém frame.
   const inventory = createInventory();
 
+  // ── Sim (Fáze 4) ─────────────────────────────────────────────────
+  // Fixed-timestep tick smyčka pro game logiku, oddělená od rendereru.
+  // Defaultní speed = 1× (30 tps). Klávesy 0/1/2/3 v input.ts přepínají
+  // 0×/1×/10×/100×. Žádné systémy zatím — jen běží čítač pro HUD.
+  const sim = new Sim();
+
   // ── Input ────────────────────────────────────────────────────────
   const inputUpdate = setupInput({
     camera,
@@ -115,11 +122,12 @@ async function main(): Promise<void> {
     highlight,
     selection,
     inventory,
+    sim,
     target: app.canvas,
   });
 
   // ── HUD ──────────────────────────────────────────────────────────
-  const hud = new Hud('hud', inventory);
+  const hud = new Hud('hud', inventory, sim);
 
   // ── Animační smyčka ─────────────────────────────────────────────
   // PixiJS ticker volá callback ~60× za sekundu (resp. monitor refresh rate).
@@ -128,6 +136,7 @@ async function main(): Promise<void> {
     const dt = app.ticker.deltaMS / 1000;
     inputUpdate(dt);
     camera.update(dt);
+    sim.update(dt);
     hud.update();
   });
 }

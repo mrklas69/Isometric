@@ -7,18 +7,22 @@
 // =============================================================================
 
 import type { Inventory } from './inventory.js';
+import type { Sim } from './sim.js';
+import { TPS } from './sim.js';
 
 export class Hud {
   private readonly el: HTMLElement;
   private readonly inventory: Inventory;   // sdílená reference (z main.ts)
+  private readonly sim: Sim;               // sdílená reference (z main.ts)
   private startTime = 0;       // ms timestamp začátku hry (performance.now())
   private hoverText = '';      // " | (3, 5) z=7 grass" nebo ""
 
-  constructor(elementId: string, inventory: Inventory) {
+  constructor(elementId: string, inventory: Inventory, sim: Sim) {
     const el = document.getElementById(elementId);
     if (!el) throw new Error(`HUD element #${elementId} nenalezen`);
     this.el = el;
     this.inventory = inventory;
+    this.sim = sim;
 
     this.startTime = performance.now();
 
@@ -43,6 +47,13 @@ export class Hud {
     const inv = this.inventory;
     const invText = ` | tree ${inv.tree} | iron ${inv.iron} | stone ${inv.stone}`;
 
-    this.el.textContent = `${mm}:${ss}${this.hoverText}${invText}`;
+    // Sim status (Fáze 4) — speed (× nebo PAUSED), tick count, measured TPS.
+    // measured TPS bude často mírně < TPS i při normálu kvůli zaokrouhlení
+    // okna; při 100× speed by mělo být ~3000.
+    const speed = this.sim.getSpeed();
+    const speedText = speed === 0 ? 'PAUSED' : `${speed}×`;
+    const simText = ` | ${speedText} tick ${this.sim.getTickCount()} (${this.sim.getMeasuredTps()}/${TPS} tps)`;
+
+    this.el.textContent = `${mm}:${ss}${this.hoverText}${invText}${simText}`;
   }
 }

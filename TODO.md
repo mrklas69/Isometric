@@ -2,12 +2,12 @@
 
 ## Now
 
-(prázdné — Fáze 3 dokončena, čeká rozhodnutí o Fázi 4)
+(prázdné — Fáze 4 dokončena, čeká rozhodnutí o Fázi 5)
 
-## Next — Fáze 4 kandidáti
+## Next — Fáze 5 kandidáti
 - **Movement** — postavy/budovy na gridu, click-to-move s pathfindingem nad heightmap.
 - **Stavba budov** — placement rule (z, terrain type, no cliff edges), production logic.
-- **Tick simulace** — fixed tickrate (30 tps), recipe / fronty / dopravníky core.
+- **První ticking system** — např. resource regenerace (strom doroste za N tiků) — ověří sim infrastrukturu na reálném use-case.
 - **Nepřekonatelnost** — `IMPASSABLE_THRESHOLD` rule pro útesy (gameplay constraint).
 
 ## Later
@@ -21,6 +21,13 @@
 - [ ] Další žánrové prvky (těžba budovou, výroba, dopravníky, …)
 
 ## Done
+- [x] **Fáze 4 — Tick simulace (kostra)**
+  - `src/sim.ts` — `Sim` třída, accumulator pattern (Glenn Fiedler), `TPS = 30`, `MAX_TICKS_PER_FRAME = 60` (cap proti spirale of death), monotónní `tickCount`
+  - Speed multipliery 0/1×/10×/100× (`SpeedMultiplier` type), pauza nuluje accumulator (po unpause se ticky nedoženou)
+  - `TickingSystem` interface + `register()` API — zatím nikdo nezaregistrován (jen kostra)
+  - Klávesy `0`/`1`/`2`/`3` v `input.ts` (`SPEED_KEYS` mapa)
+  - HUD řádek `1× tick N (M/30 tps)` resp. `PAUSED tick N (0/30 tps)` — `Sim.getMeasuredTps()` přes 1s sliding window
+  - Determinismus pravidlo: sim NIKDY `Math.random()` ani `performance.now()` (jen `updateMeasureWindow` smí na wall-clock kvůli display)
 - [x] **Fáze 3.3 — Tree varianty + density tuning + stone shrink**
   - 5 variant stromu (jehličnatý / listnatý / 2× mini jehl. / 2× mini list. / smíšený), výběr `hash(i, j) % 5`
   - Strom 1/2 měřítka (apex max ~67 px), shadow 1/2
