@@ -19,7 +19,7 @@ import type { Inventory } from './inventory.js';
 import { RESOURCE_TYPES } from './resource.js';
 import type { Sim, SpeedMultiplier } from './sim.js';
 import type { BuildMode } from './build-mode.js';
-import { canPlaceBuilding } from './building.js';
+import { canPlaceBuilding, BUILDING_MINE, BUILDING_STORAGE } from './building.js';
 
 // Stisknuté klávesy — bool flagy, čteme je v každém frame.
 // Pattern převzatý z PocketStory/Stickman (board.js _keys, BasicScene).
@@ -35,6 +35,70 @@ const KEY_PAN_SPEED = 600;
 // Rychlost zoomu kolečkem — kolik per "tick" kolečka.
 // 1.1 = +/- 10% per notch. Vyšší = agresivnější zoom.
 const WHEEL_ZOOM_FACTOR = 1.12;
+
+/**
+ * Storage klik — deposit-or-withdraw toggle (Fáze 5.3).
+ *
+ * Logika:
+ *   1. Pokud sklad má committed type X a inventory[X] > 0 a sklad není full →
+ *      deposit inventory[X] (clamp na free capacity). Stop.
+ *   2. Pokud sklad je prázdný (type = null) a inventory má něco → najdi typ
+ *      s nejvyšším amount > 0 (= "dominant") → deposit ho. Stop.
+ *   3. Jinak (sklad full / inventory matching empty) → withdraw vše ze skladu
+ *      do inventory.
+ *
+ * Single-click semantika: jeden klik = jedna akce, žádný shift/RMB modifier.
+ * Izomorfní s mine pickup (klik na budovu = primary action).
+ */
+function handleStorageClick(grid: Grid, i: number, j: number, inventory: Inventory): void {
+  const b = grid.getBuilding(i, j);
+  if (!b || b.output === null) return;
+  const slot = b.output;
+
+  // Vyber typ pro pokus o deposit:
+  //   - sklad má typ → deposit existing typ (žádné mixování)
+  //   - sklad prázdný → vyber dominantní typ z inventory (max amount)
+  let depositTypeId: number | null = slot.type;
+  if (depositTypeId === null) {
+    let bestId = -1;
+    let bestAmount = 0;
+    for (let id = 0; id < RESOURCE_TYPES.length; id++) {
+      const def = RESOURCE_TYPES[id];
+      if (!def) continue;
+      const have = inventory[def.name as keyof Inventory];
+      if (have > bestAmount) {
+        bestAmount = have;
+        bestId = id;
+      }
+    }
+    if (bestId >= 0) depositTypeId = bestId;
+  }
+
+  // Pokus o deposit (pokud máme co a sklad má místo).
+  if (depositTypeId !== null) {
+    const def = RESOURCE_TYPES[depositTypeId];
+    if (def) {
+      const name = def.name as keyof Inventory;
+      const have = inventory[name];
+      if (have > 0) {
+        const dep = grid.depositToStorage(i, j, depositTypeId, have);
+        if (dep > 0) {
+          inventory[name] -= dep;
+          return;     // úspěšný deposit → konec, žádný withdraw
+        }
+      }
+    }
+  }
+
+  // Deposit nešel (sklad full / matching inventory prázdný) → withdraw všeho.
+  const w = grid.withdrawFromStorage(i, j);
+  if (w !== null) {
+    const def = RESOURCE_TYPES[w.type];
+    if (def) {
+      inventory[def.name as keyof Inventory] += w.amount;
+    }
+  }
+}
 
 /** Veřejné API — to, co main.ts dostane po setupu. */
 export type InputContext = {
@@ -126,10 +190,16 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
         updateSelectionGraphic();
       }
     } else if (e.key === 'b' || e.key === 'B') {
-      // B = toggle build mode (Fáze 5.1)
-      buildMode.toggle();
+      // B = toggle build mode pro MINE (Fáze 5.1)
+      buildMode.toggle(BUILDING_MINE);
       // Po toggle update ghost na current hover (ON ukáže preview, OFF ho skryje
       // — updateGhost interně testuje isActive()).
+      updateHover(lastMouseX, lastMouseY);
+    } else if (e.key === 'n' || e.key === 'N') {
+      // N = toggle build mode pro STORAGE (Fáze 5.3)
+      // Pokud je build mode active s jiným typem (mine), toggle() přepne na
+      // storage bez vypnutí. Druhý stisk N → exit. Stisk B → zpět na mine.
+      buildMode.toggle(BUILDING_STORAGE);
       updateHover(lastMouseX, lastMouseY);
     } else if (e.key in SPEED_KEYS) {
       // Klávesy 0/1/2/3 → sim speed (Fáze 4)
@@ -243,23 +313,31 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
       }
 
       // ── Harvest mode (default) ─────────────────────────────────
-      // Větvení dle obsahu tile (Fáze 5.2):
-      //   a) tile MÁ budovu → vyzvedni output slot (mine pickup)
-      //   b) tile MÁ resource → harvest (jako dosud)
-      //   c) tile prázdný    → jen update selektoru
+      // Větvení dle obsahu tile:
+      //   a) tile MÁ budovu typu MINE    → vyzvedni output slot (Fáze 5.2)
+      //   b) tile MÁ budovu typu STORAGE → deposit-or-withdraw toggle (Fáze 5.3)
+      //   c) tile MÁ resource (žádná budova) → harvest (Fáze 2.2)
+      //   d) tile prázdný                → jen update selektoru
       //
       // Tile s mine zároveň MÁ resource pod sebou (canPlaceBuilding to vyžaduje),
       // ale klik = pickup z mine, NE harvest resource. Conceptual integrity:
-      // mine produkuje, pickup je z output slotu. Resource zůstává v zemi.
-      const collected = grid.collectMineOutput(tile.i, tile.j);
-      if (collected !== null) {
-        const def = RESOURCE_TYPES[collected.type];
-        if (def) {
-          // Klíče Inventory jsou totožné s `name` v RESOURCE_TYPES — type
-          // assertion je bezpečná dokud zachováme ekvivalenci.
-          inventory[def.name as keyof Inventory] += collected.amount;
+      // budova má přednost, resource zůstává v zemi.
+      const b = grid.getBuilding(tile.i, tile.j);
+      if (b !== null) {
+        if (b.typeId === BUILDING_MINE) {
+          const collected = grid.collectMineOutput(tile.i, tile.j);
+          if (collected !== null) {
+            const def = RESOURCE_TYPES[collected.type];
+            if (def) {
+              // Klíče Inventory jsou totožné s `name` v RESOURCE_TYPES — type
+              // assertion je bezpečná dokud zachováme ekvivalenci.
+              inventory[def.name as keyof Inventory] += collected.amount;
+            }
+          }
+        } else if (b.typeId === BUILDING_STORAGE) {
+          handleStorageClick(grid, tile.i, tile.j, inventory);
         }
-      } else if (grid.getBuildingAt(tile.i, tile.j) === null) {
+      } else {
         // Bez budovy → klasický harvest resource (strom, kamení na cliffu, …).
         const harvested = grid.harvest(tile.i, tile.j);
         if (harvested !== null) {

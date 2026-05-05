@@ -98,8 +98,15 @@ export class Hud {
     if (b) {
       const typeName = BUILDING_TYPES[b.typeId]?.name ?? '?';
       if (b.output) {
-        const resName = RESOURCE_TYPES[b.output.type]?.name ?? '?';
-        buildingPart = ` [${typeName}: ${resName} ${b.output.amount}/${b.output.capacity}]`;
+        // Output slot může mít type === null (prázdný sklad) — zobraz "empty".
+        // Mine output type je vždy non-null, ale defensive null check sedí
+        // s typem `OutputSlot.type: number | null`.
+        if (b.output.type === null) {
+          buildingPart = ` [${typeName}: empty 0/${b.output.capacity}]`;
+        } else {
+          const resName = RESOURCE_TYPES[b.output.type]?.name ?? '?';
+          buildingPart = ` [${typeName}: ${resName} ${b.output.amount}/${b.output.capacity}]`;
+        }
       } else {
         buildingPart = ` [${typeName}]`;
       }

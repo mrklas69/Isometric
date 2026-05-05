@@ -2,13 +2,13 @@
 
 ## Now
 
-(prázdné — Fáze 5.2 dokončena, čeká rozhodnutí o dalším kroku)
+(prázdné — Fáze 5.3 dokončena, čeká rozhodnutí o dalším kroku)
 
-## Next — kandidáti na Fázi 5.3
-- **Druhý typ budovy** — ověří, že přidání nového typu je triviální (test conceptual integrity recipe / build-mode / canPlaceBuilding pipeline).
+## Next — kandidáti na Fázi 5.4
 - **Demolice budovy** — UX (dedikovaný demolice mode? Shift+klik?). API už hotové (`grid.removeBuilding(id)`).
 - **Resource depletion** — Mine vyčerpá tile po N unitech, resource zmizí, mine přestane produkovat (Factorio-styl).
 - **Visual feedback produkce** — particle / animace nad mine když produkuje (ne když je full nebo paused).
+- **Multi-resource sklad** — Storage drží `Map<ResourceId, number>` místo single-type slotu (= Factorio chest s víc sloty).
 - **Movement** — postavy/budovy se hýbou, click-to-move s pathfindingem nad heightmap.
 - **Nepřekonatelnost** — `IMPASSABLE_THRESHOLD` rule pro útesy (gameplay constraint).
 - **Rename Inventory → Stockpile?** — globální resource pool je koncepčně sklad, ne hráčova kapsa. Až bude HQ/sklad budova, refactor.
@@ -26,6 +26,13 @@
 - [ ] Další žánrové prvky (výroba, dopravníky, sklady, …)
 
 ## Done
+- [x] **Fáze 5.3 — Storage (druhý typ budovy)**
+  - `src/building.ts` — nová konstanta `BUILDING_STORAGE = 1`, rozšíření `BUILDING_TYPES` (sanity check 2 typy), `STORAGE_CAPACITY = 200` (4× mine cap). `OutputSlot.type` z `readonly number` → `number | null` (mutable) — sklad může mít prázdný slot bez committed type, mine type stále nastavený při placement. `GridLike` rozšířen o `getTypeAt(i, j)`. `canPlaceBuilding` pro storage: NOT water, NOT mountain, NOT resource, NOT building (passable infrastructure rule).
+  - `src/building-recipes.ts` — `STORAGE_RECIPE`: silo s béžovým válcovým tělem (ENDESGA32[2]) + sytá červená kuželová střecha (ENDESGA32[8]) s mírným přesahem (r 0.32 > body 0.28). 3 primitiva (shadow + cylinder + cone). Apex 0.73 lokál units = nižší ale širší silhouette než mine (0.95).
+  - `src/build-mode.ts` — `toggle()` → `toggle(typeId)` tří-stavová logika: !active → activate, active+stejný typ → exit, active+jiný typ → switch ghost texture (= B/N přepínač bez nutnosti Esc). Privátní `setSelectedType(typeId)` aktualizuje texture + anchor z cache.
+  - `src/grid.ts` — `placeBuilding` per typ branch: MINE → output `{type: resourceFromTile, …}`, STORAGE → output `{type: null, amount: 0, capacity: 200}`. Nová API: `depositToStorage(i, j, type, amount): number` (vrací uložené kusy, clamp na free; type conflict → 0), `withdrawFromStorage(i, j): {type, amount} | null` (vyzvedne vše, slot.type → null). `collectMineOutput` defensive null check (mine type je vždy non-null, ale typ pole to dovoluje).
+  - `src/input.ts` — klávesa `N` → `buildMode.toggle(BUILDING_STORAGE)`, klávesa `B` → `toggle(BUILDING_MINE)` (sjednocená API). Click v harvest módu větvení dle `building.typeId`: mine → existing `collectMineOutput`, storage → nová `handleStorageClick`. Deposit-or-withdraw single-click toggle: pokud sklad má typ a inventory[type] > 0 → deposit; pokud sklad prázdný → deposit dominantní typ (max amount); jinak withdraw vše.
+  - `src/hud.ts` — `formatHover` handle storage `output.type === null` → `[storage: empty 0/200]` (vs. `[storage: iron 45/200]` po deposit).
 - [x] **Fáze 5.2 — Production tick (Mine output slot)**
   - `src/building.ts` — typ `OutputSlot { type, amount, capacity }` + rozšíření `Building.output: OutputSlot | null`. Konstanty `MINE_OUTPUT_CAPACITY = 50`, `MINE_TICKS_PER_UNIT = 60` (= 2 s real-time per unit při 1×).
   - `src/buildings.ts` — `register()` vezme volitelný `output`, přidána `all()` iterace pro tick systémy.

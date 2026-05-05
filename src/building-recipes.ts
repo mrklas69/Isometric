@@ -11,7 +11,7 @@
 
 import type { Recipe } from './primitives.js';
 import { ENDESGA32 } from './palette.js';
-import { BUILDING_MINE } from './building.js';
+import { BUILDING_MINE, BUILDING_STORAGE } from './building.js';
 
 // =============================================================================
 // MINE — vrtná věž / důl
@@ -43,9 +43,34 @@ const MINE_RECIPE: Recipe = [
 ];
 
 // =============================================================================
+// STORAGE — silo / sklad
+// =============================================================================
+//
+// Vizuální koncept: krátký široký silo s červenou kuželovou střechou.
+//   - Široký betonový válec (= "tělo skladu", béžový kontrast vůči mineové oceli)
+//   - Červená kuželová střecha s mírným přesahem (= ikonický silo look)
+//
+// Apex max ~0.73 lokál units = ~47 px screen → silhouette nižší než mine
+// (~0.95), ale širší (r 0.32 vs 0.28). Snadno rozlišitelné na první pohled.
+// =============================================================================
+
+const SILO_BODY = ENDESGA32[2];      // 0xead4aa — světlý béžový beton (kontrast vůči ocelové mine)
+const SILO_ROOF = ENDESGA32[8];      // 0xe43b44 — sytá červená střecha (ikonický silo look)
+
+const STORAGE_RECIPE: Recipe = [
+  // Stín — širší než tělo (= footprint).
+  { kind: 'shadow', cx: 0, cy: 0, r: 0.36 },
+  // Tělo — široký, středně vysoký válec.
+  { kind: 'cylinder', cx: 0, cy: 0, cz: 0,    r: 0.28, h: 0.55, color: SILO_BODY },
+  // Střecha — červený kužel s mírným přesahem (r 0.32 > body r 0.28).
+  { kind: 'cone',     cx: 0, cy: 0, cz: 0.55, r: 0.32, h: 0.18, color: SILO_ROOF },
+];
+
+// =============================================================================
 // Registry — `BUILDING_RECIPES[typeId][variantIndex] = Recipe`. Index přes
 // BUILDING_* konstanty z `building.ts`.
 // =============================================================================
 
 export const BUILDING_RECIPES: Recipe[][] = [];
-BUILDING_RECIPES[BUILDING_MINE] = [MINE_RECIPE];
+BUILDING_RECIPES[BUILDING_MINE]    = [MINE_RECIPE];
+BUILDING_RECIPES[BUILDING_STORAGE] = [STORAGE_RECIPE];

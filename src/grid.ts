@@ -20,7 +20,7 @@ import { TILE_VARIANTS_PER_TYPE } from './tile-recipes.js';
 import { signedNoise2D, hash2 } from './noise.js';
 import type { Buildings } from './buildings.js';
 import type { Building } from './building.js';
-import { BUILDING_MINE, MINE_OUTPUT_CAPACITY } from './building.js';
+import { BUILDING_MINE, BUILDING_STORAGE, MINE_OUTPUT_CAPACITY, STORAGE_CAPACITY } from './building.js';
 
 // =============================================================================
 // Mapping height + (i, j) → tile type.
@@ -425,9 +425,55 @@ export class Grid {
   collectMineOutput(i: number, j: number): { type: number; amount: number } | null {
     const b = this.getBuilding(i, j);
     if (!b || b.output === null || b.output.amount === 0) return null;
+    // Mine output slot má type vždy nastavený (placement ho nastaví z resource
+    // pod tile). Defensive null check pro typovou bezpečnost (OutputSlot.type
+    // je `number | null` kvůli storage).
+    if (b.output.type === null) return null;
     const collected = { type: b.output.type, amount: b.output.amount };
     b.output.amount = 0;
     return collected;
+  }
+
+  /**
+   * Pokusí se vložit `amount` jednotek `resourceType` do skladu na (i, j).
+   * Vrátí počet skutečně uložených jednotek (clamp na free capacity).
+   *
+   * Pravidla:
+   *   - Tile musí mít budovu typu STORAGE → jinak 0.
+   *   - Pokud je sklad prázdný (type === null), nastaví se na `resourceType`.
+   *   - Pokud je sklad neprázdný a typ NEMATCHUJE, vrátí 0 (= type conflict).
+   *   - Vrátí qty = min(amount, capacity - current). Slot se inkrementuje.
+   *
+   * Caller (input.ts) je odpovědný za odebrání qty z Inventory.
+   */
+  depositToStorage(i: number, j: number, resourceType: number, amount: number): number {
+    const b = this.getBuilding(i, j);
+    if (!b || b.typeId !== BUILDING_STORAGE || b.output === null) return 0;
+    const slot = b.output;
+    // Type conflict — sklad obsahuje jiný resource. Nelze míchat (single-type slot).
+    if (slot.type !== null && slot.type !== resourceType) return 0;
+    const free = slot.capacity - slot.amount;
+    const qty = Math.min(amount, free);
+    if (qty <= 0) return 0;
+    if (slot.type === null) slot.type = resourceType;
+    slot.amount += qty;
+    return qty;
+  }
+
+  /**
+   * Vyzvedne celý obsah skladu na (i, j). Vrátí typ + amount, nebo null pokud
+   * tile není sklad nebo sklad je prázdný. Po withdraw se type vrací na null
+   * (= sklad připraven na jiný typ resource).
+   */
+  withdrawFromStorage(i: number, j: number): { type: number; amount: number } | null {
+    const b = this.getBuilding(i, j);
+    if (!b || b.typeId !== BUILDING_STORAGE || b.output === null) return null;
+    const slot = b.output;
+    if (slot.amount === 0 || slot.type === null) return null;
+    const result = { type: slot.type, amount: slot.amount };
+    slot.amount = 0;
+    slot.type = null;
+    return result;
   }
 
   /**
@@ -447,16 +493,19 @@ export class Grid {
     if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) return null;
     if (this.tileBuilding[i]![j] !== null) return null;
 
-    // 1. Register v centrálním store. Pro Mine sestavíme output slot z resource
-    //    pod tile — typ produktu je přesně to, co tile má (1:1, žádné konverze).
-    //    canPlaceBuilding garantuje, že tile má IRON nebo STONE, takže
-    //    resourceType nebude null pro mine. Defensive `?? IRON` jen pro typovou
-    //    bezpečnost.
+    // 1. Register v centrálním store. Output slot per typ:
+    //    - MINE    : typ z resource pod tile (1:1, žádná konverze). canPlaceBuilding
+    //                garantuje IRON/STONE → resourceType není null. Amount 0,
+    //                roste s tickem MineSystem.
+    //    - STORAGE : type=null (= "empty, neurčený"), capacity 200. Type se
+    //                nastaví při prvním deposit, vrátí se na null po withdraw na 0.
     let output = null;
     if (typeId === BUILDING_MINE) {
       const resourceType = this.tileResource[i]![j];
       if (resourceType === null) return null;  // sanity, neměl by nastat
       output = { type: resourceType, amount: 0, capacity: MINE_OUTPUT_CAPACITY };
+    } else if (typeId === BUILDING_STORAGE) {
+      output = { type: null, amount: 0, capacity: STORAGE_CAPACITY };
     }
     const b = this.buildings.register(i, j, typeId, output);
 
