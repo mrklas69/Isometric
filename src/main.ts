@@ -25,6 +25,7 @@ import { BUILDING_RECIPES } from './building-recipes.js';
 import { Sim } from './sim.js';
 import { Buildings } from './buildings.js';
 import { BuildMode } from './build-mode.js';
+import { DemolishMode } from './demolish-mode.js';
 import { MineSystem } from './mine-system.js';
 
 async function main(): Promise<void> {
@@ -136,6 +137,12 @@ async function main(): Promise<void> {
   // se transformoval s kamerou. Klávesa B v input.ts ho přepíná.
   const buildMode = new BuildMode(world, buildingCache);
 
+  // ── DemolishMode (Fáze 5.5) ─────────────────────────────────────
+  // UI/UX pro mazání budov. Žádný ghost — používá tint na existing building
+  // sprite (červené barvení = "klik = smaž"). Klávesa X v input.ts ho přepíná.
+  // Mutual exclusion s buildMode řízeno v input.ts.
+  const demolishMode = new DemolishMode();
+
   // ── Input ────────────────────────────────────────────────────────
   const inputUpdate = setupInput({
     camera,
@@ -146,11 +153,12 @@ async function main(): Promise<void> {
     inventory,
     sim,
     buildMode,
+    demolishMode,
     target: app.canvas,
   });
 
   // ── HUD ──────────────────────────────────────────────────────────
-  const hud = new Hud('hud', inventory, sim, buildMode, grid);
+  const hud = new Hud('hud', inventory, sim, buildMode, demolishMode, grid);
 
   // ── Animační smyčka ─────────────────────────────────────────────
   // PixiJS ticker volá callback ~60× za sekundu (resp. monitor refresh rate).

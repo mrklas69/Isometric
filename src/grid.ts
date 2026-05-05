@@ -577,10 +577,26 @@ export class Grid {
   }
 
   /**
+   * Nastaví tint sprite budovy na (i, j). Pro demolish mode (Fáze 5.5) —
+   * červený = "tato budova bude smazána klikem". Default tint = 0xffffff (bílá =
+   * žádné barvení). Bez budovy = no-op.
+   *
+   * Encapsulation: `tileBuildingSprite` zůstává private. Externí kód
+   * (demolish-mode.ts) by neměl přímo sahat na sprite property — wrapper drží
+   * invariant "kdo nastaví tint, ví, co dělá".
+   */
+  setBuildingTint(i: number, j: number, tint: number): void {
+    if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) return;
+    const sprite = this.tileBuildingSprite[i]?.[j];
+    if (!sprite) return;
+    sprite.tint = tint;
+  }
+
+  /**
    * Odstraní budovu po id. Vrátí true pokud existovala.
    *
-   * Pro MVP zatím nikdo nevolá (demolice není v 5.1). Implementováno preventivně,
-   * abychom symetricky kryli place + remove a měli to ready pro 5.4 demolice.
+   * Volá DemolishMode (Fáze 5.5) po klik. Slot s output amount > 0 je při
+   * demolici ztracen — design choice: hráč zodpovídá za vyzvednutí předtím.
    */
   removeBuilding(id: number): boolean {
     const b = this.buildings.get(id);

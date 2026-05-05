@@ -10,6 +10,7 @@ import type { Inventory } from './inventory.js';
 import type { Sim } from './sim.js';
 import { TPS } from './sim.js';
 import type { BuildMode } from './build-mode.js';
+import type { DemolishMode } from './demolish-mode.js';
 import type { Grid } from './grid.js';
 import { BUILDING_TYPES } from './building.js';
 import { RESOURCE_TYPES } from './resource.js';
@@ -22,6 +23,7 @@ export class Hud {
   private readonly inventory: Inventory;   // sdílená reference (z main.ts)
   private readonly sim: Sim;               // sdílená reference (z main.ts)
   private readonly buildMode: BuildMode;   // sdílená reference (z main.ts)
+  private readonly demolishMode: DemolishMode;  // sdílená reference (Fáze 5.5)
   private readonly grid: Grid;             // pro live lookup building output
   private startTime = 0;       // ms timestamp začátku hry (performance.now())
   // Hover state: zapsaný eventem `iso:hover`, čtený v update(). Per-frame
@@ -33,6 +35,7 @@ export class Hud {
     inventory: Inventory,
     sim: Sim,
     buildMode: BuildMode,
+    demolishMode: DemolishMode,
     grid: Grid,
   ) {
     const el = document.getElementById(elementId);
@@ -41,6 +44,7 @@ export class Hud {
     this.inventory = inventory;
     this.sim = sim;
     this.buildMode = buildMode;
+    this.demolishMode = demolishMode;
     this.grid = grid;
 
     this.startTime = performance.now();
@@ -77,11 +81,14 @@ export class Hud {
     const simText = ` | ${speedText} tick ${this.sim.getTickCount()} (${this.sim.getMeasuredTps()}/${TPS} tps)`;
 
     // Build mode (Fáze 5.1) — `BUILD: mine` viditelné jen když je active.
+    // Demolish mode (Fáze 5.5) — `DEMOLISH` viditelné jen když je active.
+    // Mutual exclusion (input.ts) garantuje, že nikdy oba zároveň.
     const buildText = this.buildMode.isActive()
       ? ` | BUILD: ${this.buildMode.getSelectedTypeName()}`
       : '';
+    const demolishText = this.demolishMode.isActive() ? ' | DEMOLISH' : '';
 
-    this.el.textContent = `${mm}:${ss}${hoverText}${invText}${simText}${buildText}`;
+    this.el.textContent = `${mm}:${ss}${hoverText}${invText}${simText}${buildText}${demolishText}`;
   }
 
   /**

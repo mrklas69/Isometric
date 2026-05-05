@@ -2,10 +2,9 @@
 
 ## Now
 
-(prázdné — Fáze 5.4 dokončena, čeká rozhodnutí o dalším kroku)
+(prázdné — Fáze 5.5 dokončena, čeká rozhodnutí o dalším kroku)
 
-## Next — kandidáti na Fázi 5.5
-- **Demolice budovy** — UX (dedikovaný demolice mode? Shift+klik?). API už hotové (`grid.removeBuilding(id)`).
+## Next — kandidáti na Fázi 5.6
 - **Visual feedback produkce** — particle / animace nad mine když produkuje (ne když je full nebo paused).
 - **Visual feedback depletion** — resource sprite se zmenšuje úměrně zbytku (5 fází u stromu by vystihlo, iron/stone by potřeboval intermediate variants).
 - **Multi-resource sklad** — Storage drží `Map<ResourceId, number>` místo single-type slotu (= Factorio chest s víc sloty).
@@ -26,6 +25,13 @@
 - [ ] Další žánrové prvky (výroba, dopravníky, sklady, …)
 
 ## Done
+- [x] **Fáze 5.5 — Demolice budovy (klávesa X)**
+  - `src/demolish-mode.ts` (nový) — třída `DemolishMode` symetrická s BuildMode, ale bez ghost sprite. Místo toho tintuje **existing** building sprite na červeno (`0xff5555`) když je budova pod kurzorem. Při změně targetu / exitu obnoví tint na `0xffffff`. API: `enter / exit(grid) / toggle(grid) / setHover(i, j, grid) / clearHover(grid) / confirmDemolish(i, j, grid): boolean`.
+  - `src/grid.ts` — `setBuildingTint(i, j, tint)` wrapper nad private `tileBuildingSprite[i][j]`. Encapsulation — DemolishMode neviděla na sprite přímo.
+  - `src/input.ts` — klávesa `X` toggle. Mutual exclusion: aktivace X vypne build mode (a obráceně B/N vypne demolish). Esc priorita: demolish > build > deselect tile. RMB klik bez dragu vypne aktivní mode (build nebo demolish, sjednocená cesta exit). Klik na tile s budovou v demolish módu → `removeBuilding`. Klik mimo grid v demolish módu = no-op (žádný unintended deselect).
+  - `src/main.ts` — `new DemolishMode()` + předáno do input + hud.
+  - `src/hud.ts` — `| DEMOLISH` v line když active. Konstruktor přijímá `demolishMode` parametr.
+  - **Známá omezení / design rozhodnutí:** demolice mine s output amount > 0 = ztráta obsahu (KISS, žádný dialog "opravdu?"). Demolice neobnoví resource amount (= tile zůstane se zbytkem, lze postavit nový mine, dokud není 0). DemolishMode zůstává aktivní po každém mazání (= multi-demolice v řadě, exit přes X / Esc / RMB klik).
 - [x] **Fáze 5.4 — Resource depletion**
   - `src/resource.ts` — konstanta `RESOURCE_INITIAL_AMOUNT[id]: readonly number[]` = `[1, 100, 200]` (TREE, IRON, STONE). Sanity check délky = `RESOURCE_TYPES.length`. Tree=1 zachová původní "1 klik = pryč" chování harvestu, iron 100 = 200 s při 1× speed, stone 200 = 400 s.
   - `src/grid.ts` — nové pole `tileResourceAmount: number[][]` paralelně k `tileResource`. Init z `RESOURCE_INITIAL_AMOUNT[type]` při worldgen, 0 pokud žádný resource. Nová metoda `decrementResource(i, j): boolean` — sníží amount o 1, na 0 destroy sprite + `tileResource[i][j]=null`. Vrátí false pokud byl už 0 (= mine signál "nic neprodukuj"). Nová `getResourceAmountAt(i, j): number`. Refactor `harvest()` → volá `decrementResource()` místo duplicitní logiky (DRY).

@@ -19,6 +19,7 @@ import type { Inventory } from './inventory.js';
 import { RESOURCE_TYPES } from './resource.js';
 import type { Sim, SpeedMultiplier } from './sim.js';
 import type { BuildMode } from './build-mode.js';
+import type { DemolishMode } from './demolish-mode.js';
 import { canPlaceBuilding, BUILDING_MINE, BUILDING_STORAGE } from './building.js';
 
 // Stisknuté klávesy — bool flagy, čteme je v každém frame.
@@ -116,6 +117,8 @@ export type InputContext = {
   sim: Sim;
   /** Build mode (Fáze 5.1) — ghost preview + klik větvení. */
   buildMode: BuildMode;
+  /** Demolish mode (Fáze 5.5) — tint existing budovy + klik = remove. */
+  demolishMode: DemolishMode;
   /** Element kde poslouchat eventy (canvas). */
   target: HTMLCanvasElement;
 };
@@ -128,7 +131,7 @@ export type InputContext = {
  * posune target kamery, mouseup ukončí.
  */
 export function setupInput(ctx: InputContext): (dt: number) => void {
-  const { camera, grid, worldContainer, highlight, selection, inventory, sim, buildMode, target } = ctx;
+  const { camera, grid, worldContainer, highlight, selection, inventory, sim, buildMode, demolishMode, target } = ctx;
 
   // Mapování klávesa → speed multiplier (Fáze 4).
   // Izomorfní řada 0/1/2/3 → 0×/1×/10×/100× (jeden způsob ovládání,
@@ -182,8 +185,11 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
     } else if (e.key.toLowerCase() in _keys) {
       _keys[e.key.toLowerCase()] = true;
     } else if (e.key === 'Escape') {
-      // Esc: pokud build mode aktivní, vypni ho; jinak deselect (Fáze 2.2.4 + 5.1)
-      if (buildMode.isActive()) {
+      // Esc: priorita módy → harvest (Fáze 2.2.4 + 5.1 + 5.5)
+      // Pokud běží demolish mode, vypni ho. Jinak buildmode. Jinak deselect tile.
+      if (demolishMode.isActive()) {
+        demolishMode.exit(grid);
+      } else if (buildMode.isActive()) {
         buildMode.exit();
       } else {
         selectedTile = null;
@@ -191,6 +197,9 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
       }
     } else if (e.key === 'b' || e.key === 'B') {
       // B = toggle build mode pro MINE (Fáze 5.1)
+      // Mutual exclusion: pokud demolish mode aktivní, vypni ho — jinak by se
+      // ghost build módu kreslil přes červené tinty mazaných budov (chaos UX).
+      if (demolishMode.isActive()) demolishMode.exit(grid);
       buildMode.toggle(BUILDING_MINE);
       // Po toggle update ghost na current hover (ON ukáže preview, OFF ho skryje
       // — updateGhost interně testuje isActive()).
@@ -199,7 +208,15 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
       // N = toggle build mode pro STORAGE (Fáze 5.3)
       // Pokud je build mode active s jiným typem (mine), toggle() přepne na
       // storage bez vypnutí. Druhý stisk N → exit. Stisk B → zpět na mine.
+      if (demolishMode.isActive()) demolishMode.exit(grid);
       buildMode.toggle(BUILDING_STORAGE);
+      updateHover(lastMouseX, lastMouseY);
+    } else if (e.key === 'x' || e.key === 'X') {
+      // X = toggle demolish mode (Fáze 5.5)
+      // Mutual exclusion: pokud build mode aktivní, vypni ho — ghost preview
+      // by konfliktoval s tint hover demolice na stejném tile.
+      if (buildMode.isActive()) buildMode.exit();
+      demolishMode.toggle(grid);
       updateHover(lastMouseX, lastMouseY);
     } else if (e.key in SPEED_KEYS) {
       // Klávesy 0/1/2/3 → sim speed (Fáze 4)
@@ -230,6 +247,9 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
     if (tile === null) {
       highlight.visible = false;
       buildMode.hideGhost();
+      // Demolish mode (Fáze 5.5): kurzor opustil grid → obnov tint na předchozí
+      // budově (jinak by zůstala červená dokud nezahoveruje jinou).
+      demolishMode.clearHover(grid);
       return;
     }
     const { i, j, z } = tile;
@@ -244,6 +264,13 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
       const sx = (i - j) * HALF_W;
       const sy = (i + j) * HALF_H - z * PIXELS_PER_LEVEL + HALF_H;
       buildMode.updateGhost(sx, sy, valid);
+    }
+
+    // Demolish mode (Fáze 5.5): podsvit budovu pod kurzorem (pokud nějaká je).
+    // Build a demolish jsou mutually exclusive — nikdy nejsou oba aktivní zároveň
+    // (input keydown to garantuje), takže nemusíme ošetřovat křížový tint.
+    if (demolishMode.isActive()) {
+      demolishMode.setHover(i, j, grid);
     }
 
     window.dispatchEvent(new CustomEvent('iso:hover', {
@@ -289,12 +316,23 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
       // Větvení: build mode → place budovu / harvest mode → sběr resource.
       const tile = pickTileAt(e.clientX, e.clientY);
       if (tile === null) {
-        // Klik mimo grid: v harvest módu deselect; v build módu nic (ghost
-        // už beztak nebyl vidět).
-        if (!buildMode.isActive()) {
+        // Klik mimo grid: deselect jen v "harvest" módu (= ne build, ne demolish).
+        // V build/demolish módech klik mimo grid = no-op (žádný unintended side-effect).
+        if (!buildMode.isActive() && !demolishMode.isActive()) {
           selectedTile = null;
           updateSelectionGraphic();
         }
+        return;
+      }
+
+      if (demolishMode.isActive()) {
+        // ── Demolish mode: smaž budovu na (i, j) (Fáze 5.5) ────────
+        // Bez budovy = no-op (klik dělá nic). Vyzvedávání mine outputu
+        // ani harvest se v demolish módu nedějí — režim je striktně mazací.
+        demolishMode.confirmDemolish(tile.i, tile.j, grid);
+        // Po demolici se tile uvolnil → updateHover přepočítá podsvit
+        // (= žádný target, tint už je clean od confirmDemolish).
+        updateHover(e.clientX, e.clientY);
         return;
       }
 
@@ -367,10 +405,11 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
 
   window.addEventListener('mouseup', () => {
     if (dragActive) {
-      // RMB klik bez dragu (Fáze 5.1) — alternativní exit z build módu.
+      // RMB klik bez dragu (Fáze 5.1 + 5.5) — alternativní exit z build / demolish módu.
       // Threshold v DRAG_THRESHOLD_PX rozlišuje "klik" (= !dragMoved) od panu.
-      if (!dragMoved && dragButton === 2 && buildMode.isActive()) {
-        buildMode.exit();
+      if (!dragMoved && dragButton === 2) {
+        if (buildMode.isActive()) buildMode.exit();
+        else if (demolishMode.isActive()) demolishMode.exit(grid);
       }
       dragActive = false;
       dragButton = -1;
