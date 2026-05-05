@@ -85,12 +85,33 @@ export class Hud {
   }
 
   /**
-   * Sestaví hover část textu. Bez hover = ''. S hover = `(i, j) z=N name [building info]`.
-   * Building info je live z Gridu — ukazuje aktuální output amount.
+   * Sestaví hover část textu. Bez hover = ''. S hover formát:
+   *   `(i, j) z=N name [resource: amount] [building info]`
+   *
+   * Resource a building part jsou nezávislé — symetrie:
+   *   - tile bez ničeho:           `name`
+   *   - tile s resource:           `name [iron: 85]`
+   *   - tile s mine na resource:   `name [iron: 85] [mine: iron 12/50]`
+   *   - tile s mine bez resource:  `name [mine: iron 12/50]` (= depleted)
+   *   - tile se storage:           `name [storage: iron 45/200]` (= passable bez resource)
+   *
+   * Live data z Gridu — output amount roste i bez pohybu myši (Fáze 5.2),
+   * resource amount klesá s mine produkcí (Fáze 5.4).
    */
   private formatHover(): string {
     if (!this.hover) return '';
     const { i, j, z, name } = this.hover;
+
+    // Resource info — když je na tile resource, zobraz typ + zbývající počet
+    // (Fáze 5.4 depletion). Po vyčerpání `getResourceAt` vrátí null → resourcePart
+    // bude prázdný, building info zůstane.
+    const resourceTypeId = this.grid.getResourceAt(i, j);
+    let resourcePart = '';
+    if (resourceTypeId !== null) {
+      const resName = RESOURCE_TYPES[resourceTypeId]?.name ?? '?';
+      const amount = this.grid.getResourceAmountAt(i, j);
+      resourcePart = ` [${resName}: ${amount}]`;
+    }
 
     // Building info — jen když na tile budova stojí.
     const b = this.grid.getBuilding(i, j);
@@ -112,6 +133,6 @@ export class Hud {
       }
     }
 
-    return ` | (${i}, ${j}) z=${z} ${name ?? '?'}${buildingPart}`;
+    return ` | (${i}, ${j}) z=${z} ${name ?? '?'}${resourcePart}${buildingPart}`;
   }
 }

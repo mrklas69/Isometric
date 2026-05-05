@@ -126,8 +126,10 @@ async function main(): Promise<void> {
   //
   // MineSystem = první reálný TickingSystem. Iteruje přes Buildings registr,
   // produkuje resource do output slotů Mine budov.
+  // Grid je předán kvůli depletion check (Fáze 5.4) — produkce snižuje
+  // `tileResourceAmount`, na 0 → mine přestane produkovat + sprite zmizí.
   const sim = new Sim();
-  sim.register(new MineSystem(buildings));
+  sim.register(new MineSystem(buildings, grid));
 
   // ── BuildMode (Fáze 5.1) ────────────────────────────────────────
   // UI/UX pro stavbu budov. Ghost preview žije v `world` containeru, aby

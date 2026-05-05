@@ -12,7 +12,7 @@
 import { Container } from 'pixi.js';
 import type { Sprite, Graphics } from 'pixi.js';
 import { TILE_TYPES } from './palette.js';
-import { RESOURCE_TREE, RESOURCE_IRON, RESOURCE_STONE } from './resource.js';
+import { RESOURCE_TREE, RESOURCE_IRON, RESOURCE_STONE, RESOURCE_INITIAL_AMOUNT } from './resource.js';
 import { tileToScreen, PIXELS_PER_LEVEL, HALF_H } from './iso.js';
 import { createTileSprite, createCliffGraphic, createResourceSprite, createBuildingSprite } from './tiles.js';
 import type { CachedSprite } from './render-cache.js';
@@ -152,6 +152,16 @@ export class Grid {
    */
   readonly tileResource: (number | null)[][];
 
+  /**
+   * 2D pole zbývajícího počtu jednotek per tile (Fáze 5.4 depletion).
+   * Při `tileResource[i][j] !== null` drží `RESOURCE_INITIAL_AMOUNT[type]`.
+   * Pro tile bez resource = 0. `decrementResource()` ho snižuje, na 0 odstraní sprite.
+   *
+   * Mutable (number[][]) protože hodnoty se mění za běhu — `readonly` by se týkal
+   * jen reference na pole, ne obsahu, takže bychom z toho nic neměli.
+   */
+  readonly tileResourceAmount: number[][];
+
   /** Lookup tile sprite per (i, j) — top diamond + decorations z cache. */
   private readonly tileSprites: Sprite[][];
 
@@ -223,6 +233,7 @@ export class Grid {
     this.tileType = [];
     this.tileHeight = [];
     this.tileResource = [];
+    this.tileResourceAmount = [];
     this.tileSprites = [];
     this.tileCliffs = [];
     this.tileResourceOverlay = [];
@@ -232,6 +243,7 @@ export class Grid {
       this.tileType[i] = [];
       this.tileHeight[i] = [];
       this.tileResource[i] = [];
+      this.tileResourceAmount[i] = [];
       this.tileSprites[i] = [];
       this.tileCliffs[i] = [];
       this.tileResourceOverlay[i] = [];
@@ -320,6 +332,8 @@ export class Grid {
         const resourceTypeId = generateResource(z, cliffMagnitude, i, j, seed);
         this.tileResource[i]![j] = resourceTypeId;
         if (resourceTypeId !== null) {
+          // Resource depletion — počáteční množství per typ (Fáze 5.4).
+          this.tileResourceAmount[i]![j] = RESOURCE_INITIAL_AMOUNT[resourceTypeId] ?? 0;
           // Variant výběr — deterministicky per (i, j) přes hash, modulo počet
           // variant pro daný resource typ. Stone/iron mají 1 variantu, tree 5.
           const variantsCount = resourceCache[resourceTypeId]?.length ?? 1;
@@ -335,6 +349,7 @@ export class Grid {
           this.container.addChild(overlay);
           this.tileResourceOverlay[i]![j] = overlay;
         } else {
+          this.tileResourceAmount[i]![j] = 0;
           this.tileResourceOverlay[i]![j] = null;
         }
 
@@ -346,27 +361,62 @@ export class Grid {
   }
 
   /**
-   * Sběr resource z tile (Fáze 2.2.5). Vrátí typeId resource, který byl
-   * sebrán, nebo null pokud na tile žádný nebyl. Po úspěšném sběru:
-   *   - `tileResource[i][j] = null`
-   *   - overlay Graphics je destroyed (uvolní paměť, zmizí z renderu)
+   * Ruční sběr resource z tile (Fáze 2.2.5, refactor 5.4). Vrátí typeId resource,
+   * který byl sebrán (= +1 jednotka do inventáře), nebo null pokud na tile žádný
+   * resource není.
    *
-   * Volající (input.ts) se postará o aktualizaci inventáře.
+   * Po sběru:
+   *   - `tileResourceAmount[i][j] -= 1` (= 1 unit do kapsy)
+   *   - když dosáhne 0 → sprite zmizí, `tileResource[i][j] = null` (depleted)
+   *
+   * Tj. ruční harvest je 1 unit per klik, stejně jako produkce mine. Pro tree
+   * (init amount = 1) je to pořád "instant remove" jako dřív. Pro iron/stone
+   * (100 / 200) by hráč musel klikat 100×, což je nesmyslné — ale technicky
+   * funguje. Hlavní cesta je mine.
    */
   harvest(i: number, j: number): number | null {
     if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) return null;
     const r = this.tileResource[i]?.[j];
     if (r === null || r === undefined) return null;
-
-    const overlay = this.tileResourceOverlay[i]?.[j];
-    if (overlay) {
-      // texture: false — texturu drží render cache, sdílená přes tile stejného
-      // typu. Destroy by ji odstranil pro VŠECHNY ostatní stromy/kameny/rudy.
-      overlay.destroy({ texture: false });
-    }
-    this.tileResourceOverlay[i]![j] = null;
-    this.tileResource[i]![j] = null;
+    this.decrementResource(i, j);
     return r;
+  }
+
+  /**
+   * Sníží počet jednotek resource na tile (i, j) o 1. Vrátí true pokud klesnutí
+   * proběhlo (= mine získal 1 unit), false pokud byl tile už vyčerpaný / bez
+   * resource.
+   *
+   * Když po dekrementu dosáhne 0:
+   *   - sprite resource je destroyed (sdílená texture: false)
+   *   - `tileResource[i][j] = null` → mine přestane produkovat (`canPlace`
+   *     vrátí false; placement nového dolu je už nemožný)
+   *
+   * Volá ho MineSystem (každý 60. tick) a `harvest()` (1× per klik).
+   */
+  decrementResource(i: number, j: number): boolean {
+    if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) return false;
+    const amount = this.tileResourceAmount[i]?.[j] ?? 0;
+    if (amount <= 0) return false;
+    const remaining = amount - 1;
+    this.tileResourceAmount[i]![j] = remaining;
+    if (remaining === 0) {
+      // Resource je vyčerpaný — zmiz sprite a vyčisti tileResource.
+      const overlay = this.tileResourceOverlay[i]?.[j];
+      if (overlay) {
+        // texture: false — sdílená cache, viz harvest komentář výše.
+        overlay.destroy({ texture: false });
+      }
+      this.tileResourceOverlay[i]![j] = null;
+      this.tileResource[i]![j] = null;
+    }
+    return true;
+  }
+
+  /** Vrátí zbývající počet jednotek resource na (i, j). 0 pokud žádný / depleted / OOB. */
+  getResourceAmountAt(i: number, j: number): number {
+    if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) return 0;
+    return this.tileResourceAmount[i]?.[j] ?? 0;
   }
 
   /** Bezpečný getter — vrátí typeId nebo null pokud je tile mimo mřížku. */

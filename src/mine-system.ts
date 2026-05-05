@@ -18,13 +18,18 @@
 
 import type { TickingSystem } from './sim.js';
 import type { Buildings } from './buildings.js';
+import type { Grid } from './grid.js';
 import { BUILDING_MINE, MINE_TICKS_PER_UNIT } from './building.js';
 
 export class MineSystem implements TickingSystem {
   private readonly buildings: Buildings;
+  // Grid pro depletion check — mine sníží `tileResourceAmount` před produkcí
+  // (Fáze 5.4). Když je tile vyčerpaný, mine nic neprodukuje.
+  private readonly grid: Grid;
 
-  constructor(buildings: Buildings) {
+  constructor(buildings: Buildings, grid: Grid) {
     this.buildings = buildings;
+    this.grid = grid;
   }
 
   tick(tickCount: number): void {
@@ -37,6 +42,10 @@ export class MineSystem implements TickingSystem {
       if (b.typeId !== BUILDING_MINE) continue;
       if (b.output === null) continue;        // sanity, mine vždy má output
       if (b.output.amount >= b.output.capacity) continue;  // full → stagnuje
+      // Depletion check — pokud tile je vyčerpaný, decrementResource vrátí false
+      // a mine neprodukuje. Output zůstává s aktuálním amount; hráč ho stále
+      // může vyzvednout, ale další produkce už nepřijde (Factorio styl).
+      if (!this.grid.decrementResource(b.i, b.j)) continue;
       b.output.amount++;
     }
   }

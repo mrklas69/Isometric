@@ -2,12 +2,12 @@
 
 ## Now
 
-(prázdné — Fáze 5.3 dokončena, čeká rozhodnutí o dalším kroku)
+(prázdné — Fáze 5.4 dokončena, čeká rozhodnutí o dalším kroku)
 
-## Next — kandidáti na Fázi 5.4
+## Next — kandidáti na Fázi 5.5
 - **Demolice budovy** — UX (dedikovaný demolice mode? Shift+klik?). API už hotové (`grid.removeBuilding(id)`).
-- **Resource depletion** — Mine vyčerpá tile po N unitech, resource zmizí, mine přestane produkovat (Factorio-styl).
 - **Visual feedback produkce** — particle / animace nad mine když produkuje (ne když je full nebo paused).
+- **Visual feedback depletion** — resource sprite se zmenšuje úměrně zbytku (5 fází u stromu by vystihlo, iron/stone by potřeboval intermediate variants).
 - **Multi-resource sklad** — Storage drží `Map<ResourceId, number>` místo single-type slotu (= Factorio chest s víc sloty).
 - **Movement** — postavy/budovy se hýbou, click-to-move s pathfindingem nad heightmap.
 - **Nepřekonatelnost** — `IMPASSABLE_THRESHOLD` rule pro útesy (gameplay constraint).
@@ -26,6 +26,13 @@
 - [ ] Další žánrové prvky (výroba, dopravníky, sklady, …)
 
 ## Done
+- [x] **Fáze 5.4 — Resource depletion**
+  - `src/resource.ts` — konstanta `RESOURCE_INITIAL_AMOUNT[id]: readonly number[]` = `[1, 100, 200]` (TREE, IRON, STONE). Sanity check délky = `RESOURCE_TYPES.length`. Tree=1 zachová původní "1 klik = pryč" chování harvestu, iron 100 = 200 s při 1× speed, stone 200 = 400 s.
+  - `src/grid.ts` — nové pole `tileResourceAmount: number[][]` paralelně k `tileResource`. Init z `RESOURCE_INITIAL_AMOUNT[type]` při worldgen, 0 pokud žádný resource. Nová metoda `decrementResource(i, j): boolean` — sníží amount o 1, na 0 destroy sprite + `tileResource[i][j]=null`. Vrátí false pokud byl už 0 (= mine signál "nic neprodukuj"). Nová `getResourceAmountAt(i, j): number`. Refactor `harvest()` → volá `decrementResource()` místo duplicitní logiky (DRY).
+  - `src/mine-system.ts` — konstruktor přijímá `Grid`. Před inkrementem `output.amount` zavolá `grid.decrementResource(b.i, b.j)` — pokud false, mine nic neprodukuje. Po N produkcích (= INITIAL_AMOUNT) tile vyčerpaný, mine zůstává s aktuálním obsahem k vyzvednutí, ale produkce stojí.
+  - `src/main.ts` — `new MineSystem(buildings, grid)` (grid předán pro depletion check).
+  - `src/hud.ts` — `formatHover()` rozšířen o resource část `[<typeName>: <amount>]` (Fáze 5.4). Symetrický se [building info]: `(i, j) z=N name [iron: 85] [mine: iron 12/50]`. Po vyčerpání resource part zmizí (= visual feedback depletion). Storage tile bez resource → jen [storage] part.
+  - **Důsledek pro placement:** po vyčerpání tile `canPlaceBuilding(MINE)` vrátí false (vyžaduje IRON/STONE resource), tj. nelze postavit nový mine na vyčerpané místo. Žánrově korektní — vytěžená lokace je permanentně "vyhořelá".
 - [x] **Fáze 5.3 — Storage (druhý typ budovy)**
   - `src/building.ts` — nová konstanta `BUILDING_STORAGE = 1`, rozšíření `BUILDING_TYPES` (sanity check 2 typy), `STORAGE_CAPACITY = 200` (4× mine cap). `OutputSlot.type` z `readonly number` → `number | null` (mutable) — sklad může mít prázdný slot bez committed type, mine type stále nastavený při placement. `GridLike` rozšířen o `getTypeAt(i, j)`. `canPlaceBuilding` pro storage: NOT water, NOT mountain, NOT resource, NOT building (passable infrastructure rule).
   - `src/building-recipes.ts` — `STORAGE_RECIPE`: silo s béžovým válcovým tělem (ENDESGA32[2]) + sytá červená kuželová střecha (ENDESGA32[8]) s mírným přesahem (r 0.32 > body 0.28). 3 primitiva (shadow + cylinder + cone). Apex 0.73 lokál units = nižší ale širší silhouette než mine (0.95).
