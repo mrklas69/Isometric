@@ -15,6 +15,8 @@ import type { Grid } from './grid.js';
 import type { Container, Graphics } from 'pixi.js';
 import { screenToTile, HALF_W, HALF_H, PIXELS_PER_LEVEL } from './iso.js';
 import { GRID_SIZE, Z_MIN, Z_MAX } from './grid.js';
+import type { Inventory } from './inventory.js';
+import { RESOURCE_TYPES } from './resource.js';
 
 // Stisknuté klávesy — bool flagy, čteme je v každém frame.
 // Pattern převzatý z PocketStory/Stickman (board.js _keys, BasicScene).
@@ -39,6 +41,10 @@ export type InputContext = {
   worldContainer: Container;
   /** Highlight Graphics — nastavíme mu pozici nebo skryjeme. */
   highlight: Graphics;
+  /** Selection Graphics (Fáze 2.2.4) — persistentní vybraná tile. */
+  selection: Graphics;
+  /** Sdílený inventář — zapisuje se při sběru. */
+  inventory: Inventory;
   /** Element kde poslouchat eventy (canvas). */
   target: HTMLCanvasElement;
 };
@@ -51,7 +57,39 @@ export type InputContext = {
  * posune target kamery, mouseup ukončí.
  */
 export function setupInput(ctx: InputContext): (dt: number) => void {
-  const { camera, grid, worldContainer, highlight, target } = ctx;
+  const { camera, grid, worldContainer, highlight, selection, inventory, target } = ctx;
+
+  // Vybraná tile (Fáze 2.2.4). null = nic vybráno → selection.visible = false.
+  let selectedTile: { i: number; j: number; z: number } | null = null;
+
+  /**
+   * Pickování tile pod kurzorem (sdílený algoritmus pro hover i klik).
+   * Iteruje z=Z_MAX → Z_MIN, vrací první tile, jehož top diamond pokrývá
+   * (mouseX, mouseY) v jeho výšce. null = mimo grid nebo nad cliff face.
+   */
+  function pickTileAt(screenX: number, screenY: number): { i: number; j: number; z: number } | null {
+    const w = camera.screenToWorld(screenX, screenY);
+    for (let z = Z_MAX; z >= Z_MIN; z--) {
+      const t = screenToTile(w.x, w.y + z * PIXELS_PER_LEVEL - HALF_H);
+      const i = Math.round(t.i);
+      const j = Math.round(t.j);
+      if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) continue;
+      if (grid.getHeightAt(i, j) !== z) continue;
+      return { i, j, z };
+    }
+    return null;
+  }
+
+  /** Update selection Graphics dle aktuálního selectedTile. */
+  function updateSelectionGraphic(): void {
+    if (selectedTile === null) {
+      selection.visible = false;
+      return;
+    }
+    const { i, j, z } = selectedTile;
+    selection.position.set((i - j) * HALF_W, (i + j) * HALF_H - z * PIXELS_PER_LEVEL);
+    selection.visible = true;
+  }
 
   // ── Klávesnice ──────────────────────────────────────────────────────────
   // Globální listener (window) — funguje i když není canvas focused.
@@ -62,6 +100,10 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
       _keys[e.key] = true;
     } else if (e.key.toLowerCase() in _keys) {
       _keys[e.key.toLowerCase()] = true;
+    } else if (e.key === 'Escape') {
+      // Esc = deselect (Fáze 2.2.4)
+      selectedTile = null;
+      updateSelectionGraphic();
     }
   });
   window.addEventListener('keyup', (e) => {
@@ -84,42 +126,18 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
     lastMouseX = screenX;
     lastMouseY = screenY;
 
-    const w = camera.screenToWorld(screenX, screenY);
-
-    // ── Pickování s výškou (Fáze 2.1.7) ──────────────────────────────────
-    // Princip: tile s výškou z má top corner posunutý NAHORU o z*PIXELS_PER_LEVEL
-    // (= menší y). Pro virtuální flat-space pozici kurzoru posuneme y opačně
-    // (+z*PIXELS_PER_LEVEL). screenToTile pak vrátí (i, j) jako kdyby tile byl
-    // flat. Pokud skutečné tileHeight[i][j] === z, máme hit.
-    //
-    // Iterujeme z=Z_MAX → Z_MIN: první match (= nejvyšší tile pod kurzorem)
-    // vyhrává. Tj. pokud výškový tile pokrývá nižší tile, vybereme výš.
-    //
-    // Edge case: kurzor uprostřed cliff face (= mezi top diamondy dvou tiles)
-    // → žádný match → highlight.visible = false. Nemůžeme z cliff face určit
-    // tile bez extra geometrie; KISS = na cliff face neřešíme.
-    for (let z = Z_MAX; z >= Z_MIN; z--) {
-      // tileToScreen vrací TOP corner; pro tile center posuň y o -HALF_H.
-      const t = screenToTile(w.x, w.y + z * PIXELS_PER_LEVEL - HALF_H);
-      const i = Math.round(t.i);
-      const j = Math.round(t.j);
-      if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) continue;
-      if (grid.getHeightAt(i, j) !== z) continue;
-
-      // Hit — tile (i, j) má výšku z a kurzor je nad jeho top diamondem.
-      const sx = (i - j) * HALF_W;
-      const sy = (i + j) * HALF_H - z * PIXELS_PER_LEVEL;
-      highlight.position.set(sx, sy);
-      highlight.visible = true;
-
-      window.dispatchEvent(new CustomEvent('iso:hover', {
-        detail: { i, j, z, name: grid.getNameAt(i, j) },
-      }));
+    const tile = pickTileAt(screenX, screenY);
+    if (tile === null) {
+      highlight.visible = false;
       return;
     }
+    const { i, j, z } = tile;
+    highlight.position.set((i - j) * HALF_W, (i + j) * HALF_H - z * PIXELS_PER_LEVEL);
+    highlight.visible = true;
 
-    // Žádný tile pod kurzorem (mimo grid nebo nad cliff face).
-    highlight.visible = false;
+    window.dispatchEvent(new CustomEvent('iso:hover', {
+      detail: { i, j, z, name: grid.getNameAt(i, j) },
+    }));
   }
 
   target.addEventListener('mousemove', (e) => {
@@ -141,9 +159,32 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
   let dragLastY = 0;
 
   target.addEventListener('mousedown', (e) => {
-    // 1 = středové tlačítko (kolečko), 2 = pravé. Levé (0) zatím rezervováno
-    // pro budoucí klikání na dlaždice.
-    if (e.button === 1 || e.button === 2) {
+    if (e.button === 0) {
+      // ── Levé tlačítko = klik na tile (Fáze 2.2.4 + 2.2.5) ───────────
+      // 1) Pickni tile pod kurzorem.
+      // 2) Pokud má resource → sběr (resource zmizí, inventář++).
+      // 3) Selektor se přesune na klikntý tile (UX feedback i bez sběru).
+      // 4) Klik mimo grid → deselect.
+      const tile = pickTileAt(e.clientX, e.clientY);
+      if (tile === null) {
+        selectedTile = null;
+        updateSelectionGraphic();
+        return;
+      }
+
+      const harvested = grid.harvest(tile.i, tile.j);
+      if (harvested !== null) {
+        const def = RESOURCE_TYPES[harvested];
+        if (def) {
+          // Klíče Inventory jsou totožné s `name` v RESOURCE_TYPES — type
+          // assertion je bezpečná dokud zachováme ekvivalenci.
+          inventory[def.name as keyof Inventory]++;
+        }
+      }
+      selectedTile = tile;
+      updateSelectionGraphic();
+    } else if (e.button === 1 || e.button === 2) {
+      // Středové / pravé tlačítko = drag pan kamery
       dragActive = true;
       dragLastX = e.clientX;
       dragLastY = e.clientY;

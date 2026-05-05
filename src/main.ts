@@ -13,12 +13,13 @@
 import { Application, Container } from 'pixi.js';
 import { PAL } from './palette.js';
 import { Grid } from './grid.js';
-import { createHighlightGraphic } from './tiles.js';
+import { createHighlightGraphic, createSelectionGraphic } from './tiles.js';
 import { Camera } from './camera.js';
 import { setupInput } from './input.js';
 import { Hud } from './hud.js';
 import { loadTileTextures } from './assets.js';
 import { makeProceduralTextures } from './procedural.js';
+import { createInventory } from './inventory.js';
 
 async function main(): Promise<void> {
   // ── PIXI Application ─────────────────────────────────────────────────
@@ -72,11 +73,18 @@ async function main(): Promise<void> {
   const grid = new Grid(SEED, textures, FORCE_TYPE, USE_GRAPHICS);
   world.addChild(grid.container);
 
+  // ── Selection (vybraná dlaždice) ──────────────────────────────────
+  // Persistentní oranžový rámeček nad vybraným tile (left-click). Pod
+  // highlight v render order — žlutý hover má přednost vizuálně.
+  const selection = createSelectionGraphic(PAL.selection);
+  selection.visible = false;
+  world.addChild(selection);
+
   // ── Highlight pod kurzorem ────────────────────────────────────────
   // Žlutý rámeček nad běžnými dlaždicemi, skrytý dokud kurzor není nad gridem.
   const highlight = createHighlightGraphic(PAL.hover);
   highlight.visible = false;
-  world.addChild(highlight);   // children grid + highlight = highlight nad ním
+  world.addChild(highlight);   // children grid + selection + highlight
 
 
   // ── Camera ────────────────────────────────────────────────────────
@@ -103,17 +111,24 @@ async function main(): Promise<void> {
     );
   });
 
+  // ── Inventory (Fáze 2.2.6) ───────────────────────────────────────
+  // Sdílený mutable objekt — input ho zapisuje při sběru, HUD ho čte
+  // v každém frame.
+  const inventory = createInventory();
+
   // ── Input ────────────────────────────────────────────────────────
   const inputUpdate = setupInput({
     camera,
     grid,
     worldContainer: world,
     highlight,
+    selection,
+    inventory,
     target: app.canvas,
   });
 
   // ── HUD ──────────────────────────────────────────────────────────
-  const hud = new Hud('hud');
+  const hud = new Hud('hud', inventory);
 
   // ── Animační smyčka ─────────────────────────────────────────────
   // PixiJS ticker volá callback ~60× za sekundu (resp. monitor refresh rate).

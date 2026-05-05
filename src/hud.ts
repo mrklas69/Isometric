@@ -1,23 +1,24 @@
 // =============================================================================
 // HUD — DOM overlay nad PixiJS canvasem.
 //
-// Pro MVP zobrazuje běžící časomíru (mm:ss) od startu hry. DOM místo PIXI textu
-// → škáluje s prohlížečem nezávisle na world transformu, žádný extra ticker
-// pro vykreslování (CSS to dělá zdarma).
-//
-// Hover info (tile pod kurzorem) se přidá k základnímu času — listener
-// na custom event `iso:hover` z input.ts.
+// Zobrazuje časomíru (mm:ss), hover info (tile pod kurzorem) a inventář
+// (Fáze 2.2.6). DOM místo PIXI textu → škáluje s prohlížečem nezávisle
+// na world transformu, žádný extra ticker pro vykreslování (CSS to dělá zdarma).
 // =============================================================================
+
+import type { Inventory } from './inventory.js';
 
 export class Hud {
   private readonly el: HTMLElement;
+  private readonly inventory: Inventory;   // sdílená reference (z main.ts)
   private startTime = 0;       // ms timestamp začátku hry (performance.now())
-  private hoverText = '';      // " | (3, 5) grass" nebo ""
+  private hoverText = '';      // " | (3, 5) z=7 grass" nebo ""
 
-  constructor(elementId: string) {
+  constructor(elementId: string, inventory: Inventory) {
     const el = document.getElementById(elementId);
     if (!el) throw new Error(`HUD element #${elementId} nenalezen`);
     this.el = el;
+    this.inventory = inventory;
 
     this.startTime = performance.now();
 
@@ -35,9 +36,13 @@ export class Hud {
     const totalSec = Math.floor(elapsedMs / 1000);
     const min = Math.floor(totalSec / 60);
     const sec = totalSec % 60;
-    // padStart — doplnění nuly zleva (1:5 → 01:05).
     const mm = String(min).padStart(2, '0');
     const ss = String(sec).padStart(2, '0');
-    this.el.textContent = `${mm}:${ss}${this.hoverText}`;
+
+    // Inventář — čteme přímo ze sdíleného objektu (input.ts ho mutuje při sběru).
+    const inv = this.inventory;
+    const invText = ` | tree ${inv.tree} | iron ${inv.iron} | stone ${inv.stone}`;
+
+    this.el.textContent = `${mm}:${ss}${this.hoverText}${invText}`;
   }
 }

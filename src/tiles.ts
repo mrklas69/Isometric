@@ -12,6 +12,7 @@
 import { Sprite, Graphics, Texture } from 'pixi.js';
 import { TILE_W, TILE_H, HALF_W, HALF_H, TILE_DEPTH } from './iso.js';
 import { TILE_TYPES } from './palette.js';
+import { RESOURCE_TYPES, RESOURCE_TREE, RESOURCE_IRON, RESOURCE_STONE } from './resource.js';
 
 // =============================================================================
 // Helper — ztmaví hex barvu (násobí RGB komponenty faktorem 0..1).
@@ -124,6 +125,91 @@ export function createTileGraphic(
 }
 
 /**
+ * Vyrobí Graphics overlay pro resource (Fáze 2.2.3).
+ *
+ * Overlay je child container s lokálními souřadnicemi vztaženými k top corner
+ * tile (0, 0) = top corner. Střed top diamondu je v (0, HALF_H) = (0, 32).
+ * Resource ikonka kreslíme nad/kolem tohoto bodu.
+ *
+ * Aktuálně procedurální Graphics (KISS, žádné PNG sprity). Vizuálně:
+ *   - tree:  smrček (trojúhelník + kmen)
+ *   - iron:  hranatá ruda (lichoběžník + lesk)
+ *   - stone: nepravidelný kámen (mnohoúhelník)
+ *
+ * @param resourceTypeId  index v RESOURCE_TYPES (0..2)
+ */
+export function createResourceOverlay(resourceTypeId: number): Graphics {
+  const def = RESOURCE_TYPES[resourceTypeId];
+  if (!def) {
+    throw new Error(`Neznámý resource: ${resourceTypeId}`);
+  }
+
+  const g = new Graphics();
+  // Anchor pro overlay — střed top diamondu (= "uvnitř" tile).
+  const cx = 0;
+  const cy = HALF_H;   // = 32
+
+  switch (resourceTypeId) {
+    case RESOURCE_TREE: {
+      // Smrček — kmen pod, koruna nahoře
+      g.rect(cx - 2, cy + 4, 4, 8).fill(def.accent);
+      g.poly([
+        cx,      cy - 18,
+        cx + 12, cy + 6,
+        cx - 12, cy + 6,
+      ]).fill(def.color);
+      // Světlejší vrchol pro 3D dojem
+      g.poly([
+        cx,     cy - 16,
+        cx + 6, cy - 4,
+        cx - 6, cy - 4,
+      ]).fill(darken(def.color, 1.4));
+      break;
+    }
+    case RESOURCE_IRON: {
+      // Hranatá ruda — lichoběžník (užší nahoře, širší dole)
+      g.poly([
+        cx - 6,  cy - 8,
+        cx + 6,  cy - 8,
+        cx + 10, cy + 8,
+        cx - 10, cy + 8,
+      ]).fill(def.accent);
+      // Vnitřní světlejší plocha
+      g.poly([
+        cx - 4, cy - 6,
+        cx + 4, cy - 6,
+        cx + 7, cy + 5,
+        cx - 7, cy + 5,
+      ]).fill(def.color);
+      // Diagonální lesk
+      g.rect(cx - 3, cy - 4, 2, 4).fill(0xffffff);
+      break;
+    }
+    case RESOURCE_STONE: {
+      // Nepravidelný kámen
+      g.poly([
+        cx - 10, cy + 6,
+        cx - 6,  cy - 4,
+        cx + 4,  cy - 6,
+        cx + 10, cy + 2,
+        cx + 8,  cy + 10,
+        cx - 4,  cy + 12,
+      ]).fill(def.color);
+      // Tmavší shadow vpravo dole
+      g.poly([
+        cx + 4,  cy - 6,
+        cx + 10, cy + 2,
+        cx + 8,  cy + 10,
+        cx,      cy + 4,
+      ]).fill(def.accent);
+      break;
+    }
+  }
+
+  return g;
+}
+
+/**
  * Vyrobí Graphics pro highlight dlaždice pod kurzorem.
  * Kosočtverec stejné velikosti jako diamond top, s rámečkem a polopruhlednou
  * výplní. Top corner v (0, 0), takže `position.set(screenX, screenY)`
@@ -141,5 +227,24 @@ export function createHighlightGraphic(color: number): Graphics {
     .stroke({ color, width: 2, alignment: 0.5 });
 
   void TILE_W;   // umlčí unused-warning, ponecháno pro jednotnost s iso math
+  return g;
+}
+
+/**
+ * Vyrobí Graphics pro persistentní selection (vybranou dlaždici, Fáze 2.2.4).
+ *
+ * Stejný tvar jako highlight, ale silnější rámeček a víc výrazná výplň
+ * — UX odlišuje "transient hover" (highlight) od "stálá volba" (selection).
+ */
+export function createSelectionGraphic(color: number): Graphics {
+  const g = new Graphics();
+  g.poly([
+    0,        0,
+    HALF_W,   HALF_H,
+    0,        TILE_H,
+    -HALF_W,  HALF_H,
+  ])
+    .fill({ color, alpha: 0.18 })
+    .stroke({ color, width: 3, alignment: 0.5 });
   return g;
 }

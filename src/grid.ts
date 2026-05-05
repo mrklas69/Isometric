@@ -12,8 +12,9 @@
 import { Container, Texture } from 'pixi.js';
 import type { Sprite, Graphics } from 'pixi.js';
 import { TILE_TYPES } from './palette.js';
+import { RESOURCE_TREE, RESOURCE_IRON, RESOURCE_STONE } from './resource.js';
 import { tileToScreen, PIXELS_PER_LEVEL } from './iso.js';
-import { createTileSprite, createTileGraphic } from './tiles.js';
+import { createTileSprite, createTileGraphic, createResourceOverlay } from './tiles.js';
 import { signedNoise2D, hash2 } from './noise.js';
 
 // =============================================================================
@@ -44,6 +45,7 @@ const TYPE_WETLANDS = 7;
 // Variační noise XOR mask — různé seedy pro různé "vrstvy" výběru.
 // Bez XOR by všechny vrstvy generovaly stejnou sekvenci.
 const VARIATION_SEED_XOR = 0x5a5a5a5a;
+const RESOURCE_SEED_XOR  = 0x3c3c3c3c;
 
 function heightToTileType(z: number, i: number, j: number, seed: number): number {
   // Hash variace v rozsahu [0, 1) — deterministicky závisí na (i, j, seed).
@@ -63,6 +65,40 @@ function heightToTileType(z: number, i: number, j: number, seed: number): number
     return TYPE_DIRT;
   }
   return TYPE_MOUNTAIN;                 // 20–23 vysoké hory
+}
+
+// =============================================================================
+// Mapping (z, cliffMagnitude, i, j) → resource type | null  (Fáze 2.2.2)
+//
+// Pravidla (cíl ~25 % hustota na vhodných tile typech):
+//   - iron na mountain (z ≥ 20):       40 %
+//   - stone na cliff tiles (Δz ≥ 3):   25 %  ← prioritou nad tree
+//   - tree na grass/hills (z 7–19):    25 %
+//
+// Cliff má prioritu nad tree → na strmém svahu hilly tile dostaneš `stone`,
+// ne `tree` (sémanticky: na svahu kámen, na rovině strom). Iron jen na vrcholech.
+// =============================================================================
+function generateResource(
+  z: number,
+  cliffMagnitude: number,   // max(cliffRight, cliffLeft) v levels (ne pixelech)
+  i: number,
+  j: number,
+  seed: number,
+): number | null {
+  // Per-tile deterministický hash [0, 1) pro density check.
+  const v = hash2(i, j, seed ^ RESOURCE_SEED_XOR);
+
+  if (z >= 20) {
+    return v < 0.40 ? RESOURCE_IRON : null;
+  }
+  if (cliffMagnitude >= 3 && z >= 7) {
+    // Cliff tile (= strmý svah) → kámen. Z ≥ 7 vyloučí cliffs ve vodě.
+    return v < 0.25 ? RESOURCE_STONE : null;
+  }
+  if (z >= 7 && z <= 19) {
+    return v < 0.25 ? RESOURCE_TREE : null;
+  }
+  return null;
 }
 
 // Velikost mřížky. Kdykoliv změníš, mapa se přegeneruje ze seedu.
@@ -99,8 +135,20 @@ export class Grid {
   /** 2D pole výšky — `tileHeight[i][j]`, integer ∈ [Z_MIN, Z_MAX]. */
   readonly tileHeight: number[][];
 
+  /**
+   * 2D pole resource — `tileResource[i][j]` = id v `RESOURCE_TYPES`, nebo `null`
+   * pokud na tile žádný resource není. Sběr (`harvest`) ho přepne na null.
+   */
+  readonly tileResource: (number | null)[][];
+
   /** Lookup display object per tile (Sprite NEBO Graphics dle render mode). */
   private readonly tileSprites: (Sprite | Graphics)[][];
+
+  /**
+   * Lookup overlay Graphics per tile (resource ikona) — null pokud tile nemá
+   * resource. Při sběru `destroy()` + nastav null.
+   */
+  private readonly tileResourceOverlay: (Graphics | null)[][];
 
   /**
    * @param seed         deterministický seed pro náhodné rozhožení tile typů
@@ -119,11 +167,15 @@ export class Grid {
     // Inicializace 2D polí.
     this.tileType = [];
     this.tileHeight = [];
+    this.tileResource = [];
     this.tileSprites = [];
+    this.tileResourceOverlay = [];
     for (let i = 0; i < GRID_SIZE; i++) {
       this.tileType[i] = [];
       this.tileHeight[i] = [];
+      this.tileResource[i] = [];
       this.tileSprites[i] = [];
+      this.tileResourceOverlay[i] = [];
     }
 
     // ── Generování výškové mapy ─────────────────────────────────────
@@ -167,8 +219,11 @@ export class Grid {
         // visí v prázdnu, ale interní výškové rozdíly jsou viditelné").
         const zSE = this.tileHeight[i + 1]?.[j] ?? z;
         const zSW = this.tileHeight[i]?.[j + 1] ?? z;
-        const cliffRight = Math.max(0, z - zSE) * PIXELS_PER_LEVEL;
-        const cliffLeft  = Math.max(0, z - zSW) * PIXELS_PER_LEVEL;
+        const cliffRightLevels = Math.max(0, z - zSE);
+        const cliffLeftLevels  = Math.max(0, z - zSW);
+        const cliffMagnitude   = Math.max(cliffRightLevels, cliffLeftLevels);
+        const cliffRight = cliffRightLevels * PIXELS_PER_LEVEL;
+        const cliffLeft  = cliffLeftLevels  * PIXELS_PER_LEVEL;
 
         const obj = useGraphics
           ? createTileGraphic(typeId, cliffRight, cliffLeft)
@@ -178,8 +233,45 @@ export class Grid {
         obj.position.set(x, y);
         this.container.addChild(obj);
         this.tileSprites[i]![j] = obj;
+
+        // ── Resource overlay (Fáze 2.2) ─────────────────────────────
+        // Generujeme až teď, kdy známe cliffMagnitude. addChild PO tile
+        // (= overlay je v render order nad tile, ale stále pod sousedy
+        // s vyšším i+j).
+        const resourceTypeId = generateResource(z, cliffMagnitude, i, j, seed);
+        this.tileResource[i]![j] = resourceTypeId;
+        if (resourceTypeId !== null) {
+          const overlay = createResourceOverlay(resourceTypeId);
+          overlay.position.set(x, y);
+          this.container.addChild(overlay);
+          this.tileResourceOverlay[i]![j] = overlay;
+        } else {
+          this.tileResourceOverlay[i]![j] = null;
+        }
       }
     }
+  }
+
+  /**
+   * Sběr resource z tile (Fáze 2.2.5). Vrátí typeId resource, který byl
+   * sebrán, nebo null pokud na tile žádný nebyl. Po úspěšném sběru:
+   *   - `tileResource[i][j] = null`
+   *   - overlay Graphics je destroyed (uvolní paměť, zmizí z renderu)
+   *
+   * Volající (input.ts) se postará o aktualizaci inventáře.
+   */
+  harvest(i: number, j: number): number | null {
+    if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) return null;
+    const r = this.tileResource[i]?.[j];
+    if (r === null || r === undefined) return null;
+
+    const overlay = this.tileResourceOverlay[i]?.[j];
+    if (overlay) {
+      overlay.destroy();
+    }
+    this.tileResourceOverlay[i]![j] = null;
+    this.tileResource[i]![j] = null;
+    return r;
   }
 
   /** Bezpečný getter — vrátí typeId nebo null pokud je tile mimo mřížku. */

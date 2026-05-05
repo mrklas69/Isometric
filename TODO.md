@@ -1,24 +1,19 @@
 # TODO
 
-## Now — Fáze 2: Mapa žije
+## Now — Fáze 2.2: Resource layer & sběr
 
-### 2.1 Heightmap & render
-- [ ] **Datový model výšky** — `Tile.z: number` (integer 0–15) v `grid.ts`. Per-tile.
-- [ ] **Generátor výšky** — `noise.ts` s vlastním value-noise (deterministic, seedovaný; bez external dependencies). 2 oktávy (low-freq + high-freq).
-- [ ] **Mapping height → tile type** — pásma: `0–3 water`, `4 sand`, `5–9 grass`, `10–13 hills`, `14–15 mountain`. Plus jemný noise pro variace uvnitř pásma (`forest`, `dirt`, `farmland`, `wetlands`).
-- [ ] **Render: screen Y offset** — `screenY -= z * PIXELS_PER_LEVEL` (8 px). Update `iso.ts` API.
-- [ ] **Cliff faces** — když soused má nižší z, render obdélník (cliff side) v hlubší barvě stone. Pro oba viditelné směry (right + bottom-right v izometrii).
-- [ ] **Render order** — sort `(i+j) ASC, z DESC` aby vyšší tiles překreslily nižší.
-- [ ] **Pickování s výškou** — kurzor → najít tile s nejvyšším z, jehož diamond pokrývá kurzor (raycasting odshora). Update `input.ts`.
-- [ ] **Vizuální QA** — vizuálně ověřit: vznikají vodní plochy (z<4), nízké kopce (5–9), vysoké útesy (rozdíl 5+ mezi sousedy), kaňony (úzký pás low-z mezi high-z).
+Pásma po kalibraci (Z_MAX = 23):
+- water 0–5, wetlands 6, grass 7–13, hills 14–19, mountain 20–23.
 
-### 2.2 Resource layer & sběr (po 2.1)
-- [ ] **Datový model resource** — `Tile.resource: Resource | null`, typy: `tree`, `iron`, `stone`.
-- [ ] **Generování resource** — deterministic dle (i,j) hash + height/type rules: `iron` na mountain (z≥14), `tree` na grass/hills (z 5–13), `stone` na cliffs (rozdíl k sousedu ≥5) nebo dirt.
-- [ ] **Render overlay** — procedurální Graphics ikonka nad střed tile (zatím bez sprite).
-- [ ] **Selektor (klik)** — vybraná tile, žlutý outline, persistentní (na rozdíl od hover).
-- [ ] **Akce sběru** — klik na vybranou tile s resource → resource zmizí, globální inventář++.
-- [ ] **HUD inventář** — `🪵 N | ⛏ N | 🪨 N` textově (ikony emoji nebo zkratky).
+- [ ] **Datový model resource** — `Tile.resource: number | null`, typy: `tree`, `iron`, `stone`. Nový `src/resource.ts`.
+- [ ] **Generování resource** — deterministic dle (i,j) hash + height/cliff rules:
+  - `iron` na mountain (z 20–23) ~40 %
+  - `tree` na grass/hills (z 7–19) ~25 %
+  - `stone` na cliffs (rozdíl k sousedovi ≥3) ~25 %
+- [ ] **Render overlay** — procedurální Graphics ikonka nad střed tile (zatím bez sprite). `createResourceOverlay(typeId)` v `tiles.ts`.
+- [ ] **Selektor (klik)** — vybraná tile = persistentní oranžový outline (vs. žlutý hover). Esc / pravý klik = deselect.
+- [ ] **Akce sběru** — klik na tile s resource = resource zmizí + inventář++ (jednoklik = sběr).
+- [ ] **HUD inventář** — `tree N | iron N | stone N` textově.
 
 ## Parking (až bude chuť)
 - [ ] **Namalovat vlastní dlaždice** — 8 typů, šablona 128 px wide, diamond top half_h = 32 (= 2:1), bočnice depth ~32 px, transparent pozadí. Naming `{type}01.png` v `public/assets/terrain/`. Po dodání: `USE_GRAPHICS = false` v `main.ts:67`.
@@ -31,6 +26,13 @@
 - [ ] Auto-tiling (Wang / blob tiles) pro hraniční přechody
 
 ## Done
+- [x] **Fáze 2.1 — Mapa žije: výškový model** (commit `be1a08b`)
+  - 2-oktávový value-noise generátor (`src/noise.ts`)
+  - Tile.z ∈ [0, 23] s pásmovou type mapping
+  - Cliff faces dle výšky sousedů (BR + BL)
+  - Render screen Y offset z výšky
+  - Pickování s výškou (Z_MAX → Z_MIN)
+  - HUD ukazuje `z=N` v hover info
 - [x] **Větší mapa 100×100** — `GRID_SIZE` v `grid.ts`, 10k dlaždic, FPS OK
 - [x] **Procedurální Graphics dlaždice** — `createTileGraphic` v `tiles.ts`, render bez závislosti na PNG
 - [x] **Diagnostika sprite drift** — atlas v1 (Gemini) má per-typ nekonzistentní diamond shape → sprite path zaparkován
