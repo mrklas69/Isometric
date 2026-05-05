@@ -14,7 +14,7 @@
 // předaný do Gridu.
 // =============================================================================
 
-import type { Building } from './building.js';
+import type { Building, OutputSlot } from './building.js';
 
 export class Buildings {
   // ID generátor — monotónně rostoucí, nikdy se nerecykluje (= bezpečné, i když
@@ -28,12 +28,16 @@ export class Buildings {
    * Zaregistruje novou budovu. Volá Grid.placeBuilding po validaci.
    * Vrátí Building s nově přiděleným unikátním id.
    *
+   * @param output — output slot pro produkty (Fáze 5.2). null pokud budova
+   *                 neprodukuje (sklad, HQ, …). Pro Mine sestaví caller na
+   *                 základě resource pod tile.
+   *
    * **Pozor**: Buildings nedělá placement validaci (canPlaceBuilding je
    * separátně volaná funkce). Caller je odpovědný za platná data.
    */
-  register(i: number, j: number, typeId: number): Building {
+  register(i: number, j: number, typeId: number, output: OutputSlot | null = null): Building {
     const id = this.nextId++;
-    const b: Building = { id, typeId, i, j };
+    const b: Building = { id, typeId, i, j, output };
     this.byId.set(id, b);
     return b;
   }
@@ -49,6 +53,16 @@ export class Buildings {
   /** Získá Building po id, nebo undefined. */
   get(id: number): Building | undefined {
     return this.byId.get(id);
+  }
+
+  /**
+   * Iterace přes všechny zaregistrované budovy. Pro tick systémy (MineSystem
+   * v Fáze 5.2) = zdroj pravdy "kdo všechno produkuje".
+   *
+   * Vrací iterátor přímo z Map.values() — žádná kopie, O(1) start.
+   */
+  all(): IterableIterator<Building> {
+    return this.byId.values();
   }
 
   /** Počet všech zaregistrovaných budov ve světě. */

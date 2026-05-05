@@ -243,17 +243,33 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
       }
 
       // ── Harvest mode (default) ─────────────────────────────────
-      // 1) Sběr resource (pokud na tile je) → inventář++.
-      // 2) Selektor se přesune na klikntý tile (UX feedback i bez sběru).
-      const harvested = grid.harvest(tile.i, tile.j);
-      if (harvested !== null) {
-        const def = RESOURCE_TYPES[harvested];
+      // Větvení dle obsahu tile (Fáze 5.2):
+      //   a) tile MÁ budovu → vyzvedni output slot (mine pickup)
+      //   b) tile MÁ resource → harvest (jako dosud)
+      //   c) tile prázdný    → jen update selektoru
+      //
+      // Tile s mine zároveň MÁ resource pod sebou (canPlaceBuilding to vyžaduje),
+      // ale klik = pickup z mine, NE harvest resource. Conceptual integrity:
+      // mine produkuje, pickup je z output slotu. Resource zůstává v zemi.
+      const collected = grid.collectMineOutput(tile.i, tile.j);
+      if (collected !== null) {
+        const def = RESOURCE_TYPES[collected.type];
         if (def) {
           // Klíče Inventory jsou totožné s `name` v RESOURCE_TYPES — type
           // assertion je bezpečná dokud zachováme ekvivalenci.
-          inventory[def.name as keyof Inventory]++;
+          inventory[def.name as keyof Inventory] += collected.amount;
+        }
+      } else if (grid.getBuildingAt(tile.i, tile.j) === null) {
+        // Bez budovy → klasický harvest resource (strom, kamení na cliffu, …).
+        const harvested = grid.harvest(tile.i, tile.j);
+        if (harvested !== null) {
+          const def = RESOURCE_TYPES[harvested];
+          if (def) {
+            inventory[def.name as keyof Inventory]++;
+          }
         }
       }
+      // Selektor se přesune na klikntý tile vždy (UX feedback i bez akce).
       selectedTile = tile;
       updateSelectionGraphic();
     } else if (e.button === 1 || e.button === 2) {

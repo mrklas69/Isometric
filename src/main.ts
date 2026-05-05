@@ -25,6 +25,7 @@ import { BUILDING_RECIPES } from './building-recipes.js';
 import { Sim } from './sim.js';
 import { Buildings } from './buildings.js';
 import { BuildMode } from './build-mode.js';
+import { MineSystem } from './mine-system.js';
 
 async function main(): Promise<void> {
   // ── PIXI Application ─────────────────────────────────────────────────
@@ -118,11 +119,15 @@ async function main(): Promise<void> {
   // v každém frame.
   const inventory = createInventory();
 
-  // ── Sim (Fáze 4) ─────────────────────────────────────────────────
+  // ── Sim (Fáze 4) + systémy (Fáze 5.2) ────────────────────────────
   // Fixed-timestep tick smyčka pro game logiku, oddělená od rendereru.
   // Defaultní speed = 1× (30 tps). Klávesy 0/1/2/3 v input.ts přepínají
-  // 0×/1×/10×/100×. Žádné systémy zatím — jen běží čítač pro HUD.
+  // 0×/1×/10×/100×.
+  //
+  // MineSystem = první reálný TickingSystem. Iteruje přes Buildings registr,
+  // produkuje resource do output slotů Mine budov.
   const sim = new Sim();
+  sim.register(new MineSystem(buildings));
 
   // ── BuildMode (Fáze 5.1) ────────────────────────────────────────
   // UI/UX pro stavbu budov. Ghost preview žije v `world` containeru, aby
@@ -143,7 +148,7 @@ async function main(): Promise<void> {
   });
 
   // ── HUD ──────────────────────────────────────────────────────────
-  const hud = new Hud('hud', inventory, sim, buildMode);
+  const hud = new Hud('hud', inventory, sim, buildMode, grid);
 
   // ── Animační smyčka ─────────────────────────────────────────────
   // PixiJS ticker volá callback ~60× za sekundu (resp. monitor refresh rate).

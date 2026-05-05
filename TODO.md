@@ -2,14 +2,16 @@
 
 ## Now
 
-(prázdné — Fáze 5.1 dokončena, čeká rozhodnutí o dalším kroku)
+(prázdné — Fáze 5.2 dokončena, čeká rozhodnutí o dalším kroku)
 
-## Next — kandidáti na Fázi 5.2
-- **Production tick** — mine se zaregistruje jako `TickingSystem` v `Sim`, každých N tiků těží IRON/STONE → inventář. **První reálný use-case sim infrastruktury.**
+## Next — kandidáti na Fázi 5.3
 - **Druhý typ budovy** — ověří, že přidání nového typu je triviální (test conceptual integrity recipe / build-mode / canPlaceBuilding pipeline).
 - **Demolice budovy** — UX (dedikovaný demolice mode? Shift+klik?). API už hotové (`grid.removeBuilding(id)`).
+- **Resource depletion** — Mine vyčerpá tile po N unitech, resource zmizí, mine přestane produkovat (Factorio-styl).
+- **Visual feedback produkce** — particle / animace nad mine když produkuje (ne když je full nebo paused).
 - **Movement** — postavy/budovy se hýbou, click-to-move s pathfindingem nad heightmap.
 - **Nepřekonatelnost** — `IMPASSABLE_THRESHOLD` rule pro útesy (gameplay constraint).
+- **Rename Inventory → Stockpile?** — globální resource pool je koncepčně sklad, ne hráčova kapsa. Až bude HQ/sklad budova, refactor.
 
 ## Later
 - **Tree sway animace** — vyžaduje per-tile Graphics path nebo shader (sprite z RenderTexture nelze tween).
@@ -24,6 +26,14 @@
 - [ ] Další žánrové prvky (výroba, dopravníky, sklady, …)
 
 ## Done
+- [x] **Fáze 5.2 — Production tick (Mine output slot)**
+  - `src/building.ts` — typ `OutputSlot { type, amount, capacity }` + rozšíření `Building.output: OutputSlot | null`. Konstanty `MINE_OUTPUT_CAPACITY = 50`, `MINE_TICKS_PER_UNIT = 60` (= 2 s real-time per unit při 1×).
+  - `src/buildings.ts` — `register()` vezme volitelný `output`, přidána `all()` iterace pro tick systémy.
+  - `src/grid.ts` — `placeBuilding` sestaví `OutputSlot` z `tileResource[i][j]` (Mine produkuje přesně to, co tile má). Nové `getBuilding(i,j)` + `collectMineOutput(i,j)` (vyzvedne celý slot, vrátí `{type, amount}` nebo null).
+  - `src/mine-system.ts` — nový `MineSystem implements TickingSystem`. Modulo rate-limit (`tickCount % MINE_TICKS_PER_UNIT === 0`) — všechny doly produkují synchronně, izomorfně. Cap na capacity (full = stagnuje, žánrový tlak na transport).
+  - `src/main.ts` — `sim.register(new MineSystem(buildings))` (první reálný TickingSystem nad Sim infrastrukturou z Fáze 4).
+  - `src/input.ts` — klik na mine v harvest módu vyzvedne output slot do `Inventory`. Větvení: budova → pickup, jinak resource → harvest. Resource pod minou se ručním klikem nesklízí (= budova má přednost, conceptual integrity).
+  - `src/hud.ts` — předán `Grid` do konstruktoru, `formatHover()` skládá hover text per-frame z live dat (output amount musí růst i bez pohybu myši). Display: `(i, j) z=N name [mine: iron 12/50]`.
 - [x] **Fáze 5.1 — Stavba budov: mine**
   - `src/building.ts` — typy + `canPlaceBuilding` (pure function nad `GridLike` interface, cyklus importů zlomen přes type-only)
   - `src/buildings.ts` — `Buildings` registr, `Map<id, Building>`, `register/unregister/get`

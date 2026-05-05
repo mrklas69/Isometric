@@ -20,6 +20,7 @@ import { TILE_VARIANTS_PER_TYPE } from './tile-recipes.js';
 import { signedNoise2D, hash2 } from './noise.js';
 import type { Buildings } from './buildings.js';
 import type { Building } from './building.js';
+import { BUILDING_MINE, MINE_OUTPUT_CAPACITY } from './building.js';
 
 // =============================================================================
 // Mapping height + (i, j) → tile type.
@@ -404,6 +405,32 @@ export class Grid {
   }
 
   /**
+   * Vrátí Building objekt na (i, j), nebo null. Convenience wrapper —
+   * input.ts a hud.ts potřebují přímo data, ne jen id.
+   */
+  getBuilding(i: number, j: number): Building | null {
+    const id = this.getBuildingAt(i, j);
+    if (id === null) return null;
+    return this.buildings.get(id) ?? null;
+  }
+
+  /**
+   * Vyzvedne celý obsah output slotu Mine na (i, j) (Fáze 5.2). Vrátí typ
+   * resource a vyzvednuté množství, nebo null pokud na tile není mine nebo
+   * je slot prázdný.
+   *
+   * Caller (input.ts) výsledek zapíše do `Inventory`. Slot se vynuluje, ale
+   * budova zůstává a produkce pokračuje.
+   */
+  collectMineOutput(i: number, j: number): { type: number; amount: number } | null {
+    const b = this.getBuilding(i, j);
+    if (!b || b.output === null || b.output.amount === 0) return null;
+    const collected = { type: b.output.type, amount: b.output.amount };
+    b.output.amount = 0;
+    return collected;
+  }
+
+  /**
    * Umístí novou budovu daného typu na tile (i, j).
    *
    * **Validace zde NEBÉŘE — caller musí předem zavolat `canPlaceBuilding(...)`.**
@@ -420,8 +447,18 @@ export class Grid {
     if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) return null;
     if (this.tileBuilding[i]![j] !== null) return null;
 
-    // 1. Register v centrálním store.
-    const b = this.buildings.register(i, j, typeId);
+    // 1. Register v centrálním store. Pro Mine sestavíme output slot z resource
+    //    pod tile — typ produktu je přesně to, co tile má (1:1, žádné konverze).
+    //    canPlaceBuilding garantuje, že tile má IRON nebo STONE, takže
+    //    resourceType nebude null pro mine. Defensive `?? IRON` jen pro typovou
+    //    bezpečnost.
+    let output = null;
+    if (typeId === BUILDING_MINE) {
+      const resourceType = this.tileResource[i]![j];
+      if (resourceType === null) return null;  // sanity, neměl by nastat
+      output = { type: resourceType, amount: 0, capacity: MINE_OUTPUT_CAPACITY };
+    }
+    const b = this.buildings.register(i, j, typeId, output);
 
     // 2. Sprite z cache. Pro MVP každá budova má 1 variantu.
     const sprite = createBuildingSprite(typeId, 0, this.buildingCache);

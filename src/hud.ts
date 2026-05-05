@@ -10,30 +10,45 @@ import type { Inventory } from './inventory.js';
 import type { Sim } from './sim.js';
 import { TPS } from './sim.js';
 import type { BuildMode } from './build-mode.js';
+import type { Grid } from './grid.js';
+import { BUILDING_TYPES } from './building.js';
+import { RESOURCE_TYPES } from './resource.js';
+
+/** Snapshot hovered tile — drží se mezi mousemove a update tickem. */
+type HoverState = { i: number; j: number; z: number; name: string | null };
 
 export class Hud {
   private readonly el: HTMLElement;
   private readonly inventory: Inventory;   // sdílená reference (z main.ts)
   private readonly sim: Sim;               // sdílená reference (z main.ts)
   private readonly buildMode: BuildMode;   // sdílená reference (z main.ts)
+  private readonly grid: Grid;             // pro live lookup building output
   private startTime = 0;       // ms timestamp začátku hry (performance.now())
-  private hoverText = '';      // " | (3, 5) z=7 grass" nebo ""
+  // Hover state: zapsaný eventem `iso:hover`, čtený v update(). Per-frame
+  // přepočet building output (číslo musí růst, i když uživatel nehne myší).
+  private hover: HoverState | null = null;
 
-  constructor(elementId: string, inventory: Inventory, sim: Sim, buildMode: BuildMode) {
+  constructor(
+    elementId: string,
+    inventory: Inventory,
+    sim: Sim,
+    buildMode: BuildMode,
+    grid: Grid,
+  ) {
     const el = document.getElementById(elementId);
     if (!el) throw new Error(`HUD element #${elementId} nenalezen`);
     this.el = el;
     this.inventory = inventory;
     this.sim = sim;
     this.buildMode = buildMode;
+    this.grid = grid;
 
     this.startTime = performance.now();
 
-    // Listener na hover info z input.ts.
+    // Listener — jen uloží snapshot. Skutečný display string skládá update().
     window.addEventListener('iso:hover', (e: Event) => {
-      const ce = e as CustomEvent<{ i: number; j: number; z: number; name: string | null }>;
-      const { i, j, z, name } = ce.detail;
-      this.hoverText = ` | (${i}, ${j}) z=${z} ${name ?? '?'}`;
+      const ce = e as CustomEvent<HoverState>;
+      this.hover = ce.detail;
     });
   }
 
@@ -45,6 +60,10 @@ export class Hud {
     const sec = totalSec % 60;
     const mm = String(min).padStart(2, '0');
     const ss = String(sec).padStart(2, '0');
+
+    // Hover text se skládá per-frame (Fáze 5.2) — building output musí růst,
+    // i když uživatel nehne myší. Lookup je O(1), nehraje roli na výkon.
+    const hoverText = this.formatHover();
 
     // Inventář — čteme přímo ze sdíleného objektu (input.ts ho mutuje při sběru).
     const inv = this.inventory;
@@ -62,6 +81,30 @@ export class Hud {
       ? ` | BUILD: ${this.buildMode.getSelectedTypeName()}`
       : '';
 
-    this.el.textContent = `${mm}:${ss}${this.hoverText}${invText}${simText}${buildText}`;
+    this.el.textContent = `${mm}:${ss}${hoverText}${invText}${simText}${buildText}`;
+  }
+
+  /**
+   * Sestaví hover část textu. Bez hover = ''. S hover = `(i, j) z=N name [building info]`.
+   * Building info je live z Gridu — ukazuje aktuální output amount.
+   */
+  private formatHover(): string {
+    if (!this.hover) return '';
+    const { i, j, z, name } = this.hover;
+
+    // Building info — jen když na tile budova stojí.
+    const b = this.grid.getBuilding(i, j);
+    let buildingPart = '';
+    if (b) {
+      const typeName = BUILDING_TYPES[b.typeId]?.name ?? '?';
+      if (b.output) {
+        const resName = RESOURCE_TYPES[b.output.type]?.name ?? '?';
+        buildingPart = ` [${typeName}: ${resName} ${b.output.amount}/${b.output.capacity}]`;
+      } else {
+        buildingPart = ` [${typeName}]`;
+      }
+    }
+
+    return ` | (${i}, ${j}) z=${z} ${name ?? '?'}${buildingPart}`;
   }
 }

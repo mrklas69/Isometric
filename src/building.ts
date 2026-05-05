@@ -23,12 +23,32 @@ export type BuildingTypeDef = {
   readonly name: string;          // používá HUD pro `BUILD: <name>`
 };
 
+/**
+ * Output slot budovy (Fáze 5.2). Producent (např. Mine) sem ukládá vyrobený
+ * resource. Hráč ho vyzvedne klikem (= ručně, dokud nemáme dopravníky).
+ *
+ * - `type`     : resource id (RESOURCE_*) — fixní pro životnost budovy.
+ *                Pro Mine se nastaví při placement z resource pod tile.
+ * - `amount`   : aktuální množství (mutable, 0..capacity).
+ * - `capacity` : strop, při kterém produkce stagnuje (žánrový tlak na transport).
+ */
+export type OutputSlot = {
+  readonly type: number;          // RESOURCE_* konstanta — fixní per instance
+  amount: number;                 // mutable
+  readonly capacity: number;      // fixní per typ budovy
+};
+
 /** Runtime instance budovy (single-tile pro MVP). */
 export type Building = {
   readonly id: number;            // unikátní per Buildings registry
   readonly typeId: number;        // BUILDING_* konstanta
   readonly i: number;             // pozice na gridu
   readonly j: number;
+  /**
+   * Output slot. null pro budovy bez produkce (zatím žádné takové, ale rezerva
+   * pro budoucí typy: sklad, HQ, dopravník).
+   */
+  output: OutputSlot | null;
 };
 
 // =============================================================================
@@ -47,6 +67,19 @@ export const BUILDING_TYPES: readonly BuildingTypeDef[] = [
 if (BUILDING_TYPES.length !== 1) {
   throw new Error(`Očekáván 1 typ budovy, je jich ${BUILDING_TYPES.length}`);
 }
+
+// =============================================================================
+// Konstanty produkce (Fáze 5.2)
+// =============================================================================
+
+/** Kapacita output slotu Mine — full = produkce stagnuje. */
+export const MINE_OUTPUT_CAPACITY = 50;
+
+/**
+ * Kolik tiků trvá vyrobit 1 unit. Při TPS=30 → 60 tiků = 2 s real-time.
+ * Při speed 100× = ~30 unit/s → full slot za ~1.7 s.
+ */
+export const MINE_TICKS_PER_UNIT = 60;
 
 // =============================================================================
 // canPlaceBuilding — placement validation
