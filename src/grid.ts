@@ -9,12 +9,14 @@
 // camera následně transformuje (pan/zoom).
 // =============================================================================
 
-import { Container, Texture } from 'pixi.js';
+import { Container } from 'pixi.js';
 import type { Sprite, Graphics } from 'pixi.js';
 import { TILE_TYPES } from './palette.js';
 import { RESOURCE_TREE, RESOURCE_IRON, RESOURCE_STONE } from './resource.js';
-import { tileToScreen, PIXELS_PER_LEVEL } from './iso.js';
-import { createTileSprite, createTileGraphic, createResourceOverlay } from './tiles.js';
+import { tileToScreen, PIXELS_PER_LEVEL, HALF_H } from './iso.js';
+import { createTileSprite, createCliffGraphic, createResourceSprite } from './tiles.js';
+import type { CachedSprite } from './render-cache.js';
+import { TILE_VARIANTS_PER_TYPE } from './tile-recipes.js';
 import { signedNoise2D, hash2 } from './noise.js';
 
 // =============================================================================
@@ -44,8 +46,10 @@ const TYPE_WETLANDS = 7;
 
 // Variační noise XOR mask — různé seedy pro různé "vrstvy" výběru.
 // Bez XOR by všechny vrstvy generovaly stejnou sekvenci.
-const VARIATION_SEED_XOR = 0x5a5a5a5a;
-const RESOURCE_SEED_XOR  = 0x3c3c3c3c;
+const VARIATION_SEED_XOR        = 0x5a5a5a5a;   // tile typ variation (forest/farmland uvnitř grass pásma)
+const RESOURCE_SEED_XOR         = 0x3c3c3c3c;   // resource generování
+const VARIANT_SEED_XOR          = 0x9c9c9c9c;   // tile variant (3 varianty per typ)
+const RESOURCE_VARIANT_SEED_XOR = 0xb6b6b6b6;   // resource variant (5 variant tree, 1 stone/iron)
 
 function heightToTileType(z: number, i: number, j: number, seed: number): number {
   // Hash variace v rozsahu [0, 1) — deterministicky závisí na (i, j, seed).
@@ -68,15 +72,16 @@ function heightToTileType(z: number, i: number, j: number, seed: number): number
 }
 
 // =============================================================================
-// Mapping (z, cliffMagnitude, i, j) → resource type | null  (Fáze 2.2.2)
+// Mapping (z, cliffMagnitude, i, j) → resource type | null
 //
-// Pravidla (cíl ~25 % hustota na vhodných tile typech):
-//   - iron na mountain (z ≥ 20):       40 %
-//   - stone na cliff tiles (Δz ≥ 3):   25 %  ← prioritou nad tree
-//   - tree na grass/hills (z 7–19):    25 %
+// Pravidla:
+//   - mountain (z ≥ 20):           5 % iron + 25 % stone (zbytek prázdný)
+//   - cliff tile (Δz ≥ 2, z ≥ 7):  30 % stone
+//   - grass/hills (z 7–19):        25 % tree
 //
-// Cliff má prioritu nad tree → na strmém svahu hilly tile dostaneš `stone`,
-// ne `tree` (sémanticky: na svahu kámen, na rovině strom). Iron jen na vrcholech.
+// Iron je vzácná (5 % vrcholů), stone je dominantní horský resource. Cliff
+// threshold snížen z 3→2 levels (= víc svahů dostane kameny). Cliff má prioritu
+// nad tree → na strmém svahu hilly tile dostaneš `stone`, ne `tree`.
 // =============================================================================
 function generateResource(
   z: number,
@@ -89,11 +94,14 @@ function generateResource(
   const v = hash2(i, j, seed ^ RESOURCE_SEED_XOR);
 
   if (z >= 20) {
-    return v < 0.40 ? RESOURCE_IRON : null;
+    // Mountain — iron je vzácná (5 %), zbytek je stone do 30 % cumulative.
+    if (v < 0.05) return RESOURCE_IRON;
+    if (v < 0.30) return RESOURCE_STONE;
+    return null;
   }
-  if (cliffMagnitude >= 3 && z >= 7) {
+  if (cliffMagnitude >= 2 && z >= 7) {
     // Cliff tile (= strmý svah) → kámen. Z ≥ 7 vyloučí cliffs ve vodě.
-    return v < 0.25 ? RESOURCE_STONE : null;
+    return v < 0.30 ? RESOURCE_STONE : null;
   }
   if (z >= 7 && z <= 19) {
     return v < 0.25 ? RESOURCE_TREE : null;
@@ -141,24 +149,36 @@ export class Grid {
    */
   readonly tileResource: (number | null)[][];
 
-  /** Lookup display object per tile (Sprite NEBO Graphics dle render mode). */
-  private readonly tileSprites: (Sprite | Graphics)[][];
+  /** Lookup tile sprite per (i, j) — top diamond + decorations z cache. */
+  private readonly tileSprites: Sprite[][];
 
   /**
-   * Lookup overlay Graphics per tile (resource ikona) — null pokud tile nemá
-   * resource. Při sběru `destroy()` + nastav null.
+   * Lookup cliff Graphics per (i, j) — null pokud rovinní sousedi (žádné cliff).
+   * Cliff je samostatná Graphics layer, dynamic per tile dle z-rozdílů sousedů.
    */
-  private readonly tileResourceOverlay: (Graphics | null)[][];
+  private readonly tileCliffs: (Graphics | null)[][];
 
   /**
-   * @param seed         deterministický seed pro náhodné rozhožení tile typů
-   * @param textures     pole tile textur (index = TILE_TYPES.id), z assets.ts
-   * @param forceTypeId  pokud zadáno, VŠECHNY dlaždice budou tohoto typu
-   *                     (debug — pro odhalení nesouladu mezi sprite metadaty)
-   * @param useGraphics  pokud true, použij PIXI.Graphics místo Sprite
-   *                     (debug — vyloučí texture/anchor render path)
+   * Lookup overlay Sprite per tile (resource ikona z pre-renderované cache).
+   * Null pokud tile nemá resource. Při sběru `destroy({ texture: false })`
+   * (texturu drží cache, je sdílená přes všechny tile stejného typu).
    */
-  constructor(seed: number, textures: Texture[], forceTypeId?: number, useGraphics?: boolean) {
+  private readonly tileResourceOverlay: (Sprite | null)[][];
+
+  /**
+   * @param seed           deterministický seed pro náhodné rozhožení tile typů
+   * @param tileCache      pre-rendered tile sprites (z buildTileCache).
+   *                        Index = `[typeId][variantIndex]`.
+   * @param resourceCache  pre-rendered resource sprites (z buildRecipeCache).
+   *                        Index = RESOURCE_* konstanta (RESOURCE_TREE/IRON/STONE).
+   * @param forceTypeId    pokud zadáno, VŠECHNY dlaždice budou tohoto typu (debug).
+   */
+  constructor(
+    seed: number,
+    tileCache: ReadonlyArray<ReadonlyArray<CachedSprite>>,
+    resourceCache: ReadonlyArray<ReadonlyArray<CachedSprite>>,
+    forceTypeId?: number,
+  ) {
     this.container = new Container();
     // sortableChildren = false — pořadí addChild() určuje z-order. Renderujeme
     // dlaždice "zezadu dopředu" (j+i ascending), takže je default order OK.
@@ -169,12 +189,14 @@ export class Grid {
     this.tileHeight = [];
     this.tileResource = [];
     this.tileSprites = [];
+    this.tileCliffs = [];
     this.tileResourceOverlay = [];
     for (let i = 0; i < GRID_SIZE; i++) {
       this.tileType[i] = [];
       this.tileHeight[i] = [];
       this.tileResource[i] = [];
       this.tileSprites[i] = [];
+      this.tileCliffs[i] = [];
       this.tileResourceOverlay[i] = [];
     }
 
@@ -224,14 +246,30 @@ export class Grid {
         const cliffRight = cliffRightLevels * PIXELS_PER_LEVEL;
         const cliffLeft  = cliffLeftLevels  * PIXELS_PER_LEVEL;
 
-        const obj = useGraphics
-          ? createTileGraphic(typeId, cliffRight, cliffLeft)
-          : createTileSprite(typeId, textures);
+        // Variant výběr — deterministicky per (i, j) přes hash, modulo počet
+        // variant per typ. Stejná tile vždy stejný vzhled, ale bez vzoru.
+        const variantIndex = Math.floor(
+          hash2(i, j, seed ^ VARIANT_SEED_XOR) * TILE_VARIANTS_PER_TYPE,
+        );
+        const sprite = createTileSprite(typeId, variantIndex, tileCache);
         // Tile s vyšším z je výš na obrazovce (menší y).
         const { x, y } = tileToScreen(i, j, z);
-        obj.position.set(x, y);
-        this.container.addChild(obj);
-        this.tileSprites[i]![j] = obj;
+        // Sprite anchor je v lokál (0, 0, 0) recipe = STŘED tile. Posun o
+        // +HALF_H umístí střed na (x, y + HALF_H), tj. střed top diamondu.
+        sprite.position.set(x, y + HALF_H);
+        this.container.addChild(sprite);
+        this.tileSprites[i]![j] = sprite;
+
+        // Cliff faces — separátní Graphics layer (dynamic per tile dle
+        // z-rozdílu sousedů). Null pokud rovinní sousedi.
+        const cliff = createCliffGraphic(typeId, cliffRight, cliffLeft);
+        if (cliff) {
+          // Cliff lokál (0, 0) = top corner tile, takže pozice (x, y) přímo
+          // (= bez +HALF_H offsetu, který je jen pro sprite-anchor convention).
+          cliff.position.set(x, y);
+          this.container.addChild(cliff);
+        }
+        this.tileCliffs[i]![j] = cliff;
 
         // ── Resource overlay (Fáze 2.2) ─────────────────────────────
         // Generujeme až teď, kdy známe cliffMagnitude. addChild PO tile
@@ -240,8 +278,17 @@ export class Grid {
         const resourceTypeId = generateResource(z, cliffMagnitude, i, j, seed);
         this.tileResource[i]![j] = resourceTypeId;
         if (resourceTypeId !== null) {
-          const overlay = createResourceOverlay(resourceTypeId);
-          overlay.position.set(x, y);
+          // Variant výběr — deterministicky per (i, j) přes hash, modulo počet
+          // variant pro daný resource typ. Stone/iron mají 1 variantu, tree 5.
+          const variantsCount = resourceCache[resourceTypeId]?.length ?? 1;
+          const resourceVariant = Math.floor(
+            hash2(i, j, seed ^ RESOURCE_VARIANT_SEED_XOR) * variantsCount,
+          );
+          // Sprite z pre-renderované cache. Pozice (x, y + HALF_H) = lokální
+          // (0, 0, 0) recipe (= ground střed) přistane na střed top diamond
+          // tile. `tileToScreen` vrací top corner; HALF_H je posun na střed.
+          const overlay = createResourceSprite(resourceTypeId, resourceVariant, resourceCache);
+          overlay.position.set(x, y + HALF_H);
           this.container.addChild(overlay);
           this.tileResourceOverlay[i]![j] = overlay;
         } else {
@@ -266,7 +313,9 @@ export class Grid {
 
     const overlay = this.tileResourceOverlay[i]?.[j];
     if (overlay) {
-      overlay.destroy();
+      // texture: false — texturu drží render cache, sdílená přes tile stejného
+      // typu. Destroy by ji odstranil pro VŠECHNY ostatní stromy/kameny/rudy.
+      overlay.destroy({ texture: false });
     }
     this.tileResourceOverlay[i]![j] = null;
     this.tileResource[i]![j] = null;

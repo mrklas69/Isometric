@@ -28,7 +28,9 @@
       "PowerShell(python \"C:\\\\Users\\\\mrkla\\\\source\\\\Isometric\\\\scripts\\\\compare_shapes.py\")",
       "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -Last 5)",
       "Bash(npm run *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(findstr :5173)",
+      "Bash(dir *)"
     ]
   }
 }

@@ -17,9 +17,10 @@ import { createHighlightGraphic, createSelectionGraphic } from './tiles.js';
 import { Camera } from './camera.js';
 import { setupInput } from './input.js';
 import { Hud } from './hud.js';
-import { loadTileTextures } from './assets.js';
-import { makeProceduralTextures } from './procedural.js';
 import { createInventory } from './inventory.js';
+import { buildTileCache } from './render-cache.js';
+import { RESOURCE_RECIPES } from './recipes.js';
+import { TILE_RECIPES } from './tile-recipes.js';
 
 async function main(): Promise<void> {
   // ── PIXI Application ─────────────────────────────────────────────────
@@ -45,32 +46,22 @@ async function main(): Promise<void> {
   const world = new Container();
   app.stage.addChild(world);
 
-  // ── Render mode ──────────────────────────────────────────────────
-  // USE_GRAPHICS=true → procedurální PIXI.Graphics dlaždice (8 barev z palety,
-  //                    konzistentní iso shape, žádné assety potřeba).
-  // USE_GRAPHICS=false → sprite z PNG textury (vyžaduje konzistentní 2:1
-  //                     dimetric shape napříč typy — atlas v1 NE, parkováno
-  //                     do atlas v2 nebo manuálně malovaných dlaždic).
-  // USE_PROCEDURAL_TEXTURES (relevantní jen pro sprite path) → debug fallback,
-  //                     vygeneruje textury z Graphics místo PNG (= bezpečný
-  //                     baseline pro test sprite render path).
-  const USE_GRAPHICS = true;
-  const USE_PROCEDURAL_TEXTURES = false;
-
-  // Sprite path potřebuje textury, Graphics path je nepoužívá → ušetříme PNG
-  // load + síťovou prodlevu, když textury nejsou potřeba.
-  const textures: import('pixi.js').Texture[] = USE_GRAPHICS
-    ? []
-    : USE_PROCEDURAL_TEXTURES
-      ? makeProceduralTextures(app)
-      : await loadTileTextures();
+  // ── Render cache (Fáze 3.1 + 3.2) ────────────────────────────────
+  // Pre-rendering všech recipes (tile typy + resources s variantami) do
+  // RenderTexture. Pak per-tile sprite jen referuje texturu — GPU batch
+  // friendly, low-poly 3D look. Stejná struktura cache (CachedSprite[][])
+  // pro tile i resource → reuse jednoho builderu.
+  //   - tileCache:     8 typů × 3 varianty = 24 textur
+  //   - resourceCache: tree (5 variant) + stone (1) + iron (1) = 7 textur
+  const tileCache     = buildTileCache(app.renderer, TILE_RECIPES);
+  const resourceCache = buildTileCache(app.renderer, RESOURCE_RECIPES);
 
   // ── Grid ──────────────────────────────────────────────────────────
   // Seed je deterministický — chceš jinou mapu? Změň seed.
   // forceTypeId — pokud zadáno, všechny dlaždice stejného typu (debug).
   const SEED = 0x15ce7ec;
   const FORCE_TYPE: number | undefined = undefined;
-  const grid = new Grid(SEED, textures, FORCE_TYPE, USE_GRAPHICS);
+  const grid = new Grid(SEED, tileCache, resourceCache, FORCE_TYPE);
   world.addChild(grid.container);
 
   // ── Selection (vybraná dlaždice) ──────────────────────────────────

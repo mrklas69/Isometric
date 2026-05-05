@@ -24,30 +24,28 @@
 ## Struktura
 ```
 Isometric/
-├── .source/                       # referenční obrázky + zdrojové atlasy
-│   └── terrain_atlas_v1.png       # Gemini-generated 4×2 atlas → input pipeline
+├── .source/                       # historické referenční obrázky (atlas v1 archiv)
 ├── public/                        # Vite servíruje jako webroot (URL: /)
-│   └── assets/
-│       └── terrain/               # PNG dlaždice (128×119–127 px, RGBA)
-│           ├── grass01.png
-│           ├── dirt01.png
-│           └── ...                # 8 typů celkem
-├── scripts/
-│   ├── process_atlas.py           # atlas → individual tiles pipeline
-│   │                              #   (CC labeling, magenta→alpha, resize)
-│   └── debug_sparkle.py           # debug helper (lokalizace artefaktů)
+├── scripts/                       # historické asset processing skripty (atlas pipeline, parkováno)
 ├── docs/
-│   └── asset-brief.md             # brief pro 3rd-party asset generators
+│   └── asset-brief.md             # historický brief (atlas v1, parkováno)
 ├── src/
-│   ├── main.ts                    # entry — kompozice modulů
+│   ├── main.ts                    # entry — kompozice modulů, vybudování cache
 │   ├── palette.ts                 # Endesga 32 + TILE_TYPES (8 typů)
-│   ├── iso.ts                     # tile↔screen souřadnicová math
-│   ├── tiles.ts                   # createTileSprite + createHighlightGraphic
-│   ├── assets.ts                  # async loader textur (PixiJS Assets API)
-│   ├── grid.ts                    # 10×10 data + render gridu
+│   ├── iso.ts                     # tile↔screen math (2:1 dimetric, PIXELS_PER_LEVEL)
+│   ├── iso3d.ts                   # 3D→iso projekce + 3-tonal shading (lerp k bílé/černé)
+│   ├── primitives.ts              # diamond / shadow / cylinder / cone / sphere / blob
+│   ├── recipes.ts                 # resource recipes (tree 5 var, stone, iron)
+│   ├── tile-recipes.ts            # tile recipes (8 typů × 3 varianty)
+│   ├── render-cache.ts            # pre-render Recipe[][] → CachedSprite[][]
+│   ├── tiles.ts                   # createTileSprite/CliffGraphic/ResourceSprite + highlight/selection
+│   ├── grid.ts                    # GRID_SIZE × GRID_SIZE data + render gridu
 │   ├── camera.ts                  # pan + zoom + damping
-│   ├── input.ts                   # myš, klávesnice, picking
-│   └── hud.ts                     # časomíra, hover info
+│   ├── input.ts                   # myš, klávesnice, picking s výškou
+│   ├── hud.ts                     # časomíra, hover info, inventář
+│   ├── inventory.ts               # nasbíraných resource (sdílený mutable state)
+│   ├── resource.ts                # RESOURCE_TYPES + id konstanty
+│   └── noise.ts                   # value-noise (heightmap) + hash2 (variants)
 ├── index.html
 ├── vite.config.ts
 ├── tsconfig.json
@@ -57,22 +55,22 @@ Isometric/
 └── IDEAS.md
 ```
 
-**Vite konvence**: static herní assety patří do `public/` (servírují se přímo přes URL bez import / hash), zdrojové soubory v `src/`. Naše PNG textury jsou runtime-loaded → `public/assets/terrain/`.
+**Vite konvence**: static herní assety patří do `public/` (servírují se přímo přes URL bez import / hash), zdrojové soubory v `src/`.
 
-## Asset convention
-PNG dlaždice v `public/assets/terrain/`:
-- Naming: `{type}{NN}.png` — `grass01.png`, `forest01.png`, …
-- Aktuálně **8 typů × 1 varianta** (MVP). Variant pool přijde později — engine bude
-  random-pickovat deterministicky podle pozice (`hash(i, j) % poolSize`).
-- Pipeline: zdrojový atlas (4×2 grid na #ff00ff pozadí, např. od Gemini) →
-  `scripts/process_atlas.py` → individuální PNG s alpha kanálem.
+## Render architektura (Fáze 3)
+Vše vykreslené je **sprite z RenderTexture cache**, vyrenderovaný z **recipe = pole 3D primitiv** v 2:1 dimetric projekci.
+
+- **Primitiva** v `primitives.ts`: `diamond` (top tile face), `shadow` (drop shadow elipsa), `cylinder`, `cone`, `sphere`, `blob`. Každá kreslí 1–3 polygons s 3-tonal flat shadingem (top/left/right face, slunce z left-up screen, lerp k bílé/černé).
+- **Recipe** v `recipes.ts` (resources) a `tile-recipes.ts` (tiles): pole primitiv, max 5 per recipe. Origin (0,0,0) = ground střed tile.
+- **Cache** v `render-cache.ts`: `buildTileCache(renderer, Recipe[][])` → `CachedSprite[][]` (texture + anchor v lokál (0,0,0)). Pre-render při bootu, lookup O(1).
+- **Variants** per typ: deterministicky `hash(i, j, seed) % N` — stejná tile vždy stejný look, ale bez vzoru.
+- **Cliff faces** zůstávají procedurální v `grid.ts` (decoupling — kombinatorická exploze cache by byla 4608+ textur). Per tile dle z-rozdílu sousedů.
+
+Inspirace: `C:\Users\mrkla\source\TheCubes` (Three.js voxel sandbox), pattern: **kompozice low-poly primitiv + flat shading**.
 
 ## Open Questions
 - **Q-diary:** DIARY.md / DONE.md / GLOSSARY.md ve stylu Stickman, nebo dál KISS?
-- **Q-more-tiles:** Doplnit chybějící terény (`sand`, `stone`, `snow`) v dalším atlas batchi?
-
-## Aktuální stav rendereru
-`USE_GRAPHICS = true` v `main.ts` — procedurální PIXI.Graphics dlaždice (8 barev z palety). Atlas v1 (Gemini) má per-typ nekonzistentní iso shape → sprite path driftoval. Plán: **vlastní manuální malba** 8 dlaždic se šablonou odpovídající iso math (128 wide, half_h=32). Po dodání assetů `USE_GRAPHICS = false` aktivuje sprite path.
+- **Q-stone-iron-variants:** Vyrobit také varianty stone a iron (dnes 1 každý)?
 
 ## Workflow
 Default podle globálního `~/.claude/CLAUDE.md`.

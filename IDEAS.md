@@ -77,19 +77,9 @@ Inspirační okruh: Factorio, Mindustry, Settlers, OpenTTD. Důsledky pro budouc
 
 > **Pro MVP nic z toho neřešíme.** MVP je čistý renderer + kamera + časomíra + hover. Žánrové prvky postupně.
 
-## Známý issue: PNG sprite drift (atlas v1)
+## Render architektura (Fáze 3)
 
-Gemini-vyrobený atlas `terrain_atlas_v1.png` má **per-typ nekonzistentní tvar diamondu** — např. forest má diamond top vyšší / širší než water. Měřená levá špička (col-x=0) je 32-45 px per typ; diamond bottom corner v centrálním sloupci je v různé y per typ.
-
-Důsledek: sprite render path (sprite + anchor + texture quad) drifty cca 5 px per tile na sousedech různých typů → kumulativní schody v rohu mřížky. **Procedurální Graphics path** funguje (stejný iso math, ale unifikovaný shape).
-
-Cesty k fixu (zvažované):
-- **Regenerace atlasu** s explicit "2:1 dimetric, diamond half_h = half_w / 2 exact pixel-aligned" (= viz `docs/asset-brief.md`)
-- **Per-typ X+Y squash** v pipeline — měřit diamond bounding box v PNG (treetop overflow detection nontrivial)
-- ✅ **Manuální vlastní malba** dlaždic (rozhodnuto) — uživatel namaluje tilesety vlastnoručně, šablona odpovídá iso math (128×64 diamond + bočnice, top corner v PNG y=0)
-- **Vlastní render Graphics → high-res RenderTexture s textured fill** (= cartoon look, jednotný shape)
-
-Aktuálně: `USE_GRAPHICS = true` v `main.ts` (= procedurální placeholder dlaždice). Sprite path je connected (PNG load → PIXI.Sprite + anchor), připravená, čeká na vlastní malované assety s konzistentním shape.
+PNG path zrušena. Veškerý rendering jde přes **recipe systém** — pole 3D primitiv pre-renderované do RenderTexture, sprite per tile referuje cached texturu. Detail v `CLAUDE.md` sekce "Render architektura".
 
 ## Technical pole k prozkoumání
 - **Render strategie:** sprite-based (PNG dlaždice) — odpovídá asset convention

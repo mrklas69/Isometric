@@ -1,22 +1,31 @@
 // =============================================================================
-// Tile rendering — sprite-based (PNG textury) + highlight overlay.
+// Tile rendering — sprite z RenderTexture cache + cliff face Graphics.
 //
-// `createTileSprite(typeId, textures)` vrátí PIXI.Sprite s anchorem na top
-// edge PNG. Po Y-squashi v pipeline má každá dlaždice diamond top corner
-// přesně na y=0 → uniform anchor (0.5, 0) sedí pro všechny typy.
+// **Architektura (Fáze 3.2):**
+//   - `createTileSprite(typeId, variantIndex, cache)` → Sprite z pre-renderované
+//     tile recipe (= top diamond + decorations). Anchor v lokál (0,0,0) = střed
+//     tile.
+//   - `createCliffGraphic(typeId, cliffRight, cliffLeft)` → Graphics, JEN dvě
+//     boční stěny (BR + BL face). Top diamond NENÍ součástí (= je v sprite).
+//     Kreslí se přímo per tile v gridu, dle z-rozdílu sousedů (decoupling
+//     z cache).
 //
-// `createHighlightGraphic(color)` vykreslí kosočtverec hover-rámečku stejné
-// velikosti jako diamond top (TILE_W × TILE_H z iso.ts).
+// **Pozicování v gridu:**
+//   - Sprite: `position.set(screenX, screenY + HALF_H)` — lokál (0,0,0) recipe
+//     přistane na střed top diamondu tile.
+//   - Cliff Graphics: `position.set(screenX, screenY)` — lokál (0,0) Graphics
+//     je top corner tile, cliff faces visí dolů z bottom corner.
 // =============================================================================
 
-import { Sprite, Graphics, Texture } from 'pixi.js';
-import { TILE_W, TILE_H, HALF_W, HALF_H, TILE_DEPTH } from './iso.js';
+import { Sprite, Graphics } from 'pixi.js';
+import { TILE_W, TILE_H, HALF_W, HALF_H } from './iso.js';
 import { TILE_TYPES } from './palette.js';
-import { RESOURCE_TYPES, RESOURCE_TREE, RESOURCE_IRON, RESOURCE_STONE } from './resource.js';
+import type { CachedSprite } from './render-cache.js';
 
 // =============================================================================
 // Helper — ztmaví hex barvu (násobí RGB komponenty faktorem 0..1).
-// Používá se pro generování boční stěny ze základní barvy top diamondu.
+// Lokální verze pro cliff face shading (= side face stínování). Pro recipe
+// shading používá `iso3d.shade` (lerp k bílé/černé).
 // =============================================================================
 function darken(color: number, factor: number): number {
   const r = Math.floor(((color >> 16) & 0xff) * factor);
@@ -26,53 +35,57 @@ function darken(color: number, factor: number): number {
 }
 
 /**
- * Vyrobí Sprite pro danou typovou dlaždici.
+ * Vyrobí Sprite pro tile z pre-renderované cache (Fáze 3.2).
  *
- * Anchor (0.5, 0) — kotva uprostřed šířky a na top edge sprite. Diamond
- * top corner je po Y-squashi v pipeline přesně na y=0, takže
- * `sprite.position.set(screenX, screenY)` umístí top corner přesně tam.
+ * Caller předá `cache` (`CachedSprite[][]` z `buildTileCache`), `typeId`
+ * (= TILE_TYPES.id) a `variantIndex` (= 0..TILE_VARIANTS_PER_TYPE-1).
  *
- * @param typeId   index v TILE_TYPES (0..7)
- * @param textures pole textur ve stejném pořadí jako TILE_TYPES (z assets.ts)
+ * Sprite má anchor v lokálním (0, 0, 0) recipe — `sprite.position(screenX,
+ * screenY + HALF_H)` umístí střed tile na (screenX, screenY + HALF_H), kde
+ * (screenX, screenY) je top corner tile (z `tileToScreen`).
  */
-export function createTileSprite(typeId: number, textures: Texture[]): Sprite {
-  const def = TILE_TYPES[typeId];
-  if (!def) {
-    throw new Error(`Neznámý typ dlaždice: ${typeId}`);
+export function createTileSprite(
+  typeId: number,
+  variantIndex: number,
+  cache: ReadonlyArray<ReadonlyArray<CachedSprite>>,
+): Sprite {
+  const variants = cache[typeId];
+  if (!variants) {
+    throw new Error(`Chybí tile cache pro typ ${typeId}`);
   }
-  const tex = textures[typeId];
-  if (!tex) {
-    throw new Error(`Chybí textura pro tile typu ${typeId} (${def.name})`);
+  const cached = variants[variantIndex];
+  if (!cached) {
+    throw new Error(`Chybí variant ${variantIndex} pro typ ${typeId}`);
   }
-
-  const sprite = new Sprite(tex);
-  sprite.anchor.set(0.5, 0);
+  const sprite = new Sprite(cached.texture);
+  sprite.anchor.set(cached.anchorX, cached.anchorY);
   return sprite;
 }
 
 /**
- * Vyrobí Graphics dlaždici procedurálně (top diamond + 2 bočnice).
+ * Vyrobí Graphics jen s cliff faces (= 2 boční stěny tile).
  *
- * Top corner v lokálních souřadnicích (0, 0) — po `g.position.set(X, Y)`
- * je top corner přesně v (X, Y).
+ * Top diamond JE V tile sprite (z cache) — sem patří jen bočnice, jejichž
+ * výška se mění per-tile dle z-rozdílu sousedů (kombinatorická exploze
+ * by cachi zničila — proto decoupling).
  *
- * **Cliff faces (Fáze 2.1.5)**: V izometrii vidíme jen jižní polovinu bočnic
- * (BR + BL). Jejich výška = výškový rozdíl k sousedovi pod nimi:
- *   - cliffRight (BR face) = max(0, z(i,j) - z(i+1, j)) * PIXELS_PER_LEVEL
- *   - cliffLeft  (BL face) = max(0, z(i,j) - z(i, j+1)) * PIXELS_PER_LEVEL
- *
- * Default `TILE_DEPTH` (= 32 px) se používá pro `procedural.ts` (texture gen
- * nezná sousedy → fixed depth). Grid předává explicitně spočítané hodnoty.
+ * Lokální (0, 0) = top corner tile. Cliff faces visí dolů z bottom corner
+ * (lokál (0, TILE_H)).
  *
  * @param typeId      index v TILE_TYPES (0..7)
  * @param cliffRight  výška BR cliff face v px (vůči SE sousedovi)
  * @param cliffLeft   výška BL cliff face v px (vůči SW sousedovi)
+ *
+ * @returns Graphics, nebo null pokud oba cliff jsou 0 (= rovinné okolí, žádné
+ *          cliff kreslit).
  */
-export function createTileGraphic(
+export function createCliffGraphic(
   typeId: number,
-  cliffRight: number = TILE_DEPTH,
-  cliffLeft: number = TILE_DEPTH,
-): Graphics {
+  cliffRight: number,
+  cliffLeft: number,
+): Graphics | null {
+  if (cliffRight <= 0 && cliffLeft <= 0) return null;
+
   const def = TILE_TYPES[typeId];
   if (!def) {
     throw new Error(`Neznámý typ dlaždice: ${typeId}`);
@@ -84,129 +97,55 @@ export function createTileGraphic(
 
   const g = new Graphics();
 
-  // Bočnice první (z-order: nakresleno PŘED top diamondem v rámci jediného
-  // Graphics — top diamond je překryje, jak má).
-  // Když je cliff = 0 (rovinní sousedi), face neexistuje — vůbec nekreslíme.
+  // Levá bočnice (BL face) — visí z bottom corner dolů, šikmo na -X side.
   if (cliffLeft > 0) {
     g.poly([
-      -HALF_W, HALF_H,                  // left corner
-      0,       TILE_H,                  // bottom corner
-      0,       TILE_H + cliffLeft,      // bottom-down
-      -HALF_W, HALF_H + cliffLeft,      // left-down
+      -HALF_W, HALF_H,                  // left corner top
+      0,       TILE_H,                  // bottom corner top
+      0,       TILE_H + cliffLeft,      // bottom corner down
+      -HALF_W, HALF_H + cliffLeft,      // left corner down
     ]).fill(sideLeft);
   }
 
+  // Pravá bočnice (BR face) — visí z bottom corner dolů, šikmo na +X side.
   if (cliffRight > 0) {
     g.poly([
-      0,      TILE_H,                   // bottom corner
-      HALF_W, HALF_H,                   // right corner
-      HALF_W, HALF_H + cliffRight,      // right-down
-      0,      TILE_H + cliffRight,      // bottom-down
+      0,      TILE_H,                   // bottom corner top
+      HALF_W, HALF_H,                   // right corner top
+      HALF_W, HALF_H + cliffRight,      // right corner down
+      0,      TILE_H + cliffRight,      // bottom corner down
     ]).fill(sideRight);
   }
-
-  // Top diamond
-  g.poly([
-    0,        0,         // top corner — anchor lokál (0, 0)
-    HALF_W,   HALF_H,    // right
-    0,        TILE_H,    // bottom
-    -HALF_W,  HALF_H,    // left
-  ]).fill(top);
-
-  // Tenký okraj diamondu — pomáhá vidět hranice mřížky
-  g.poly([
-    0,        0,
-    HALF_W,   HALF_H,
-    0,        TILE_H,
-    -HALF_W,  HALF_H,
-  ]).stroke({ color: darken(top, 0.4), width: 1, alignment: 0.5 });
 
   return g;
 }
 
 /**
- * Vyrobí Graphics overlay pro resource (Fáze 2.2.3).
+ * Vyrobí Sprite pro resource z pre-renderované cache (Fáze 3.1 + 3.3).
  *
- * Overlay je child container s lokálními souřadnicemi vztaženými k top corner
- * tile (0, 0) = top corner. Střed top diamondu je v (0, HALF_H) = (0, 32).
- * Resource ikonka kreslíme nad/kolem tohoto bodu.
- *
- * Aktuálně procedurální Graphics (KISS, žádné PNG sprity). Vizuálně:
- *   - tree:  smrček (trojúhelník + kmen)
- *   - iron:  hranatá ruda (lichoběžník + lesk)
- *   - stone: nepravidelný kámen (mnohoúhelník)
+ * Stejná struktura jako tile cache — `cache[resourceTypeId][variantIndex]`.
+ * Pro resources s 1 variantou (stone, iron) caller předá `variantIndex = 0`.
  *
  * @param resourceTypeId  index v RESOURCE_TYPES (0..2)
+ * @param variantIndex    index varianty (0..N-1, N = počet variant per typ)
+ * @param cache           `CachedSprite[][]` z `buildTileCache(RESOURCE_RECIPES)`
  */
-export function createResourceOverlay(resourceTypeId: number): Graphics {
-  const def = RESOURCE_TYPES[resourceTypeId];
-  if (!def) {
-    throw new Error(`Neznámý resource: ${resourceTypeId}`);
+export function createResourceSprite(
+  resourceTypeId: number,
+  variantIndex: number,
+  cache: ReadonlyArray<ReadonlyArray<CachedSprite>>,
+): Sprite {
+  const variants = cache[resourceTypeId];
+  if (!variants) {
+    throw new Error(`Chybí cache pro resource ${resourceTypeId}`);
   }
-
-  const g = new Graphics();
-  // Anchor pro overlay — střed top diamondu (= "uvnitř" tile).
-  const cx = 0;
-  const cy = HALF_H;   // = 32
-
-  switch (resourceTypeId) {
-    case RESOURCE_TREE: {
-      // Smrček — kmen pod, koruna nahoře
-      g.rect(cx - 2, cy + 4, 4, 8).fill(def.accent);
-      g.poly([
-        cx,      cy - 18,
-        cx + 12, cy + 6,
-        cx - 12, cy + 6,
-      ]).fill(def.color);
-      // Světlejší vrchol pro 3D dojem
-      g.poly([
-        cx,     cy - 16,
-        cx + 6, cy - 4,
-        cx - 6, cy - 4,
-      ]).fill(darken(def.color, 1.4));
-      break;
-    }
-    case RESOURCE_IRON: {
-      // Hranatá ruda — lichoběžník (užší nahoře, širší dole)
-      g.poly([
-        cx - 6,  cy - 8,
-        cx + 6,  cy - 8,
-        cx + 10, cy + 8,
-        cx - 10, cy + 8,
-      ]).fill(def.accent);
-      // Vnitřní světlejší plocha
-      g.poly([
-        cx - 4, cy - 6,
-        cx + 4, cy - 6,
-        cx + 7, cy + 5,
-        cx - 7, cy + 5,
-      ]).fill(def.color);
-      // Diagonální lesk
-      g.rect(cx - 3, cy - 4, 2, 4).fill(0xffffff);
-      break;
-    }
-    case RESOURCE_STONE: {
-      // Nepravidelný kámen
-      g.poly([
-        cx - 10, cy + 6,
-        cx - 6,  cy - 4,
-        cx + 4,  cy - 6,
-        cx + 10, cy + 2,
-        cx + 8,  cy + 10,
-        cx - 4,  cy + 12,
-      ]).fill(def.color);
-      // Tmavší shadow vpravo dole
-      g.poly([
-        cx + 4,  cy - 6,
-        cx + 10, cy + 2,
-        cx + 8,  cy + 10,
-        cx,      cy + 4,
-      ]).fill(def.accent);
-      break;
-    }
+  const cached = variants[variantIndex];
+  if (!cached) {
+    throw new Error(`Chybí variant ${variantIndex} pro resource ${resourceTypeId}`);
   }
-
-  return g;
+  const sprite = new Sprite(cached.texture);
+  sprite.anchor.set(cached.anchorX, cached.anchorY);
+  return sprite;
 }
 
 /**

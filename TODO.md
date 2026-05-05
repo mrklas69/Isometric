@@ -2,25 +2,46 @@
 
 ## Now
 
-(prázdné — Fáze 2 dokončena, čeká rozhodnutí o další fázi)
+(prázdné — Fáze 3 dokončena, čeká rozhodnutí o Fázi 4)
 
-## Next — Fáze 3 kandidáti
+## Next — Fáze 4 kandidáti
 - **Movement** — postavy/budovy na gridu, click-to-move s pathfindingem nad heightmap.
 - **Stavba budov** — placement rule (z, terrain type, no cliff edges), production logic.
 - **Tick simulace** — fixed tickrate (30 tps), recipe / fronty / dopravníky core.
 - **Nepřekonatelnost** — `IMPASSABLE_THRESHOLD` rule pro útesy (gameplay constraint).
 
-## Parking (až bude chuť)
-- [ ] **Namalovat vlastní dlaždice** — 8 typů, šablona 128 px wide, diamond top half_h = 32 (= 2:1), bočnice depth ~32 px, transparent pozadí. Naming `{type}01.png` v `public/assets/terrain/`. Po dodání: `USE_GRAPHICS = false` v `main.ts:67`.
-- [ ] **Q-diary** — DIARY.md / DONE.md / GLOSSARY.md ve stylu Stickman, nebo dál KISS?
-
 ## Later
-- [ ] **Resource regenerace** — strom doroste za N sekund (vyžaduje game-clock / tick simulaci). Odložené z Fáze 2.
-- [ ] Variant pool (více variant per typ, deterministic random per (i, j))
+- **Tree sway animace** — vyžaduje per-tile Graphics path nebo shader (sprite z RenderTexture nelze tween).
+- **Resource regenerace** — strom doroste za N sekund (vyžaduje game-clock / tick simulaci).
+- **Stone/iron varianty** — analogicky stromu (3+ provedení per typ).
+- **Auto-tiling** (Wang / blob tiles) pro hraniční přechody mezi tile typy.
+
+## Parking (až bude chuť)
+- [ ] **Q-diary** — DIARY.md / DONE.md / GLOSSARY.md ve stylu Stickman, nebo dál KISS?
 - [ ] Další žánrové prvky (těžba budovou, výroba, dopravníky, …)
-- [ ] Auto-tiling (Wang / blob tiles) pro hraniční přechody
 
 ## Done
+- [x] **Fáze 3.3 — Tree varianty + density tuning + stone shrink**
+  - 5 variant stromu (jehličnatý / listnatý / 2× mini jehl. / 2× mini list. / smíšený), výběr `hash(i, j) % 5`
+  - Strom 1/2 měřítka (apex max ~67 px), shadow 1/2
+  - Stone 1/2 měřítka (radius i pozice půleny)
+  - Resource density: iron 40 % → 5 % (vzácná); stone 25 % na cliff Δz≥2 → 30 % + 25 % na mountain (= primární horský resource)
+  - Architektura: `RESOURCE_RECIPES: Recipe[][]` (= varianty per resource), reuse `buildTileCache`, smazán `buildRecipeCache`
+- [x] **Fáze 3.2 — Terrain tiles jako primitive recipes**
+  - `src/tile-recipes.ts` — 8 typů × 3 varianty = 24 recipes (grass/dirt/water/farmland/forest/mountain/hills/wetlands, každý s decorations: trsy trávy, kamínky, vlnky, brázdy, rákosy, skalky)
+  - `primitives.ts` — přidaný `kind: 'diamond'` (= top tile face s tmavou hraně)
+  - `render-cache.ts` — `buildTileCache` (univerzální 2D pole `Recipe[][] → CachedSprite[][]`)
+  - `tiles.ts` — `createTileSprite(typeId, variantIndex, cache)` (sprite z cache), `createCliffGraphic` (= jen 2 boční stěny, bez top diamond — cliff je oddělená Graphics layer per tile dle z-rozdílů sousedů)
+  - `grid.ts` — sprite + cliff Graphics rendrované samostatně, variant výběr `hash(i, j) % TILE_VARIANTS_PER_TYPE`
+  - `main.ts` — vybudování tileCache a resourceCache po `app.init()`
+  - **Smazány**: `assets.ts` (PNG loader), `procedural.ts` (procedural texture gen) — recipe path je definitivní
+- [x] **Fáze 3.1 — Resource overlays jako primitive recipes**
+  - `src/iso3d.ts` — projekce 3D→iso 2D (2:1 dimetric, lokální units odvozené z HALF_W/HALF_H), 3-tonal shading (top/left/right face, slunce z TL screen, lerp k bílé/černé)
+  - `src/primitives.ts` — slovník: `cylinder`, `cone`, `sphere`, `blob`, `shadow` (drop shadow elipsa)
+  - `src/recipes.ts` — `TREE` (kmen + 3 cones, 1:1 z TheCubes buildTree), `STONE` (5 hexagonálních blobs, 3 odstíny), `IRON` (4 blobs + 1 sphere lesk)
+  - `src/render-cache.ts` — pre-render do `RenderTexture` po `app.init()`, lookup `recipeId → { texture, anchorX, anchorY }`
+  - `tiles.ts` — `createResourceOverlay` (Graphics switch) → `createResourceSprite(id, cache)` (Sprite z cache)
+  - `grid.ts` — typ overlay = `Sprite`, pozicování `(x, y + HALF_H)` aby lokál (0,0,0) přistál na střed top diamond. Harvest `destroy({ texture: false })` (sdílená textura).
 - [x] **Fáze 2.2 — Resource layer & sběr** (commit `45b0d5d`)
   - `src/resource.ts` + `src/inventory.ts` (nové moduly)
   - 3 typy resource (tree / iron / stone) s pravidly: iron 40 % na mountain z≥20, stone 25 % na cliffs Δz≥3, tree 25 % na grass/hills z 7–19
