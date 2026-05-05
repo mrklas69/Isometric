@@ -1,19 +1,14 @@
 # TODO
 
-## Now — Fáze 2.2: Resource layer & sběr
+## Now
 
-Pásma po kalibraci (Z_MAX = 23):
-- water 0–5, wetlands 6, grass 7–13, hills 14–19, mountain 20–23.
+(prázdné — Fáze 2 dokončena, čeká rozhodnutí o další fázi)
 
-- [ ] **Datový model resource** — `Tile.resource: number | null`, typy: `tree`, `iron`, `stone`. Nový `src/resource.ts`.
-- [ ] **Generování resource** — deterministic dle (i,j) hash + height/cliff rules:
-  - `iron` na mountain (z 20–23) ~40 %
-  - `tree` na grass/hills (z 7–19) ~25 %
-  - `stone` na cliffs (rozdíl k sousedovi ≥3) ~25 %
-- [ ] **Render overlay** — procedurální Graphics ikonka nad střed tile (zatím bez sprite). `createResourceOverlay(typeId)` v `tiles.ts`.
-- [ ] **Selektor (klik)** — vybraná tile = persistentní oranžový outline (vs. žlutý hover). Esc / pravý klik = deselect.
-- [ ] **Akce sběru** — klik na tile s resource = resource zmizí + inventář++ (jednoklik = sběr).
-- [ ] **HUD inventář** — `tree N | iron N | stone N` textově.
+## Next — Fáze 3 kandidáti
+- **Movement** — postavy/budovy na gridu, click-to-move s pathfindingem nad heightmap.
+- **Stavba budov** — placement rule (z, terrain type, no cliff edges), production logic.
+- **Tick simulace** — fixed tickrate (30 tps), recipe / fronty / dopravníky core.
+- **Nepřekonatelnost** — `IMPASSABLE_THRESHOLD` rule pro útesy (gameplay constraint).
 
 ## Parking (až bude chuť)
 - [ ] **Namalovat vlastní dlaždice** — 8 typů, šablona 128 px wide, diamond top half_h = 32 (= 2:1), bočnice depth ~32 px, transparent pozadí. Naming `{type}01.png` v `public/assets/terrain/`. Po dodání: `USE_GRAPHICS = false` v `main.ts:67`.
@@ -26,6 +21,13 @@ Pásma po kalibraci (Z_MAX = 23):
 - [ ] Auto-tiling (Wang / blob tiles) pro hraniční přechody
 
 ## Done
+- [x] **Fáze 2.2 — Resource layer & sběr** (commit `45b0d5d`)
+  - `src/resource.ts` + `src/inventory.ts` (nové moduly)
+  - 3 typy resource (tree / iron / stone) s pravidly: iron 40 % na mountain z≥20, stone 25 % na cliffs Δz≥3, tree 25 % na grass/hills z 7–19
+  - Procedurální Graphics overlay (smrček, ruda, kámen) — bez sprites
+  - Selektor (oranžový persistent outline, vs. žlutý hover); levý klik = sběr nebo select; Esc = deselect
+  - HUD inventář: `tree N | iron N | stone N`
+  - `Grid.harvest(i, j)` metoda + sdílený `Inventory` mezi `input` a `hud`
 - [x] **Fáze 2.1 — Mapa žije: výškový model** (commit `be1a08b`)
   - 2-oktávový value-noise generátor (`src/noise.ts`)
   - Tile.z ∈ [0, 23] s pásmovou type mapping

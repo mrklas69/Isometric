@@ -197,7 +197,6 @@ export class Grid {
         this.tileHeight[i]![j] = Math.max(Z_MIN, Math.min(Z_MAX, Math.round(raw)));
       }
     }
-    logHeightDistribution(this.tileHeight);
 
     // Iterace v pořadí (i+j) ASC — to je correct z-order pro izometrii.
     // Tj. nejprve (0,0), pak (1,0)+(0,1), pak (2,0)+(1,1)+(0,2), atd.
@@ -294,41 +293,3 @@ export class Grid {
   }
 }
 
-// =============================================================================
-// Debug — vypiš distribuci výšek (per-z histogram + agregát do pásem) do
-// console. Slouží pro QA: kalibrace Z_BASE / amplitud / frekvencí. Cíl je
-// přibližně: water 15 %, sand 10 %, grass 50 %, hills 15 %, mountain 10 %.
-// Smaž (nebo skry za debug flag), až bude generátor odladěn.
-// =============================================================================
-function logHeightDistribution(heightMap: number[][]): void {
-  const histogram = new Array(Z_MAX - Z_MIN + 1).fill(0);
-  for (let i = 0; i < heightMap.length; i++) {
-    const row = heightMap[i]!;
-    for (let j = 0; j < row.length; j++) {
-      histogram[row[j]!]++;
-    }
-  }
-  const total = heightMap.length * heightMap[0]!.length;
-
-  console.log('[grid] Height distribution (per-z):');
-  histogram.forEach((count: number, z: number) => {
-    const pct = ((count / total) * 100).toFixed(1);
-    // padStart pro zarovnaný výpis v console.
-    console.log(`  z=${String(z).padStart(2, ' ')}: ${String(count).padStart(5)} (${pct}%)`);
-  });
-
-  // Agregát do pásem (sjednocený s heightToTileType v 2.1.3).
-  const bands = { water: 0, wetlands: 0, grass: 0, hills: 0, mountain: 0 };
-  histogram.forEach((count: number, z: number) => {
-    if (z <= 5) bands.water += count;
-    else if (z === 6) bands.wetlands += count;
-    else if (z <= 13) bands.grass += count;
-    else if (z <= 19) bands.hills += count;
-    else bands.mountain += count;
-  });
-  const pct = (n: number) => ((n / total) * 100).toFixed(1) + '%';
-  console.log(
-    `[grid] Bands: water ${pct(bands.water)} | wetlands ${pct(bands.wetlands)} | ` +
-    `grass ${pct(bands.grass)} | hills ${pct(bands.hills)} | mountain ${pct(bands.mountain)}`,
-  );
-}
