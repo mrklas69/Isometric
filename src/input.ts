@@ -18,6 +18,8 @@ import { GRID_SIZE, Z_MIN, Z_MAX } from './grid.js';
 import type { Inventory } from './inventory.js';
 import { RESOURCE_TYPES } from './resource.js';
 import type { Sim, SpeedMultiplier } from './sim.js';
+import type { BuildMode } from './build-mode.js';
+import { canPlaceBuilding } from './building.js';
 
 // Stisknuté klávesy — bool flagy, čteme je v každém frame.
 // Pattern převzatý z PocketStory/Stickman (board.js _keys, BasicScene).
@@ -48,6 +50,8 @@ export type InputContext = {
   inventory: Inventory;
   /** Sim — přepínáme rychlost klávesami 0/1/2/3. */
   sim: Sim;
+  /** Build mode (Fáze 5.1) — ghost preview + klik větvení. */
+  buildMode: BuildMode;
   /** Element kde poslouchat eventy (canvas). */
   target: HTMLCanvasElement;
 };
@@ -60,7 +64,7 @@ export type InputContext = {
  * posune target kamery, mouseup ukončí.
  */
 export function setupInput(ctx: InputContext): (dt: number) => void {
-  const { camera, grid, worldContainer, highlight, selection, inventory, sim, target } = ctx;
+  const { camera, grid, worldContainer, highlight, selection, inventory, sim, buildMode, target } = ctx;
 
   // Mapování klávesa → speed multiplier (Fáze 4).
   // Izomorfní řada 0/1/2/3 → 0×/1×/10×/100× (jeden způsob ovládání,
@@ -114,9 +118,19 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
     } else if (e.key.toLowerCase() in _keys) {
       _keys[e.key.toLowerCase()] = true;
     } else if (e.key === 'Escape') {
-      // Esc = deselect (Fáze 2.2.4)
-      selectedTile = null;
-      updateSelectionGraphic();
+      // Esc: pokud build mode aktivní, vypni ho; jinak deselect (Fáze 2.2.4 + 5.1)
+      if (buildMode.isActive()) {
+        buildMode.exit();
+      } else {
+        selectedTile = null;
+        updateSelectionGraphic();
+      }
+    } else if (e.key === 'b' || e.key === 'B') {
+      // B = toggle build mode (Fáze 5.1)
+      buildMode.toggle();
+      // Po toggle update ghost na current hover (ON ukáže preview, OFF ho skryje
+      // — updateGhost interně testuje isActive()).
+      updateHover(lastMouseX, lastMouseY);
     } else if (e.key in SPEED_KEYS) {
       // Klávesy 0/1/2/3 → sim speed (Fáze 4)
       sim.setSpeed(SPEED_KEYS[e.key]);
@@ -145,11 +159,22 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
     const tile = pickTileAt(screenX, screenY);
     if (tile === null) {
       highlight.visible = false;
+      buildMode.hideGhost();
       return;
     }
     const { i, j, z } = tile;
     highlight.position.set((i - j) * HALF_W, (i + j) * HALF_H - z * PIXELS_PER_LEVEL);
     highlight.visible = true;
+
+    // Build mode (Fáze 5.1): update ghost preview na hovered tile.
+    // Ghost se umisťuje na střed top diamond (= +HALF_H), stejně jako resource
+    // sprite — jejich anchor je v lokál (0, 0, 0) recipe = ground střed.
+    if (buildMode.isActive()) {
+      const valid = canPlaceBuilding(grid, i, j, buildMode.getSelectedType());
+      const sx = (i - j) * HALF_W;
+      const sy = (i + j) * HALF_H - z * PIXELS_PER_LEVEL + HALF_H;
+      buildMode.updateGhost(sx, sy, valid);
+    }
 
     window.dispatchEvent(new CustomEvent('iso:hover', {
       detail: { i, j, z, name: grid.getNameAt(i, j) },
@@ -166,28 +191,60 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
       camera.pan(dx, dy);
       dragLastX = e.clientX;
       dragLastY = e.clientY;
+      // Cumulative movement od mousedown — pro click vs drag detekci.
+      const totalDx = e.clientX - dragStartX;
+      const totalDy = e.clientY - dragStartY;
+      if (Math.abs(totalDx) > DRAG_THRESHOLD_PX || Math.abs(totalDy) > DRAG_THRESHOLD_PX) {
+        dragMoved = true;
+      }
     }
   });
 
   // ── Drag pan (pravé / středové tlačítko) ───────────────────────────────
+  // dragMoved + dragButton sledujeme proto, abychom rozlišili "klik bez dragu"
+  // (= cesta uvolnit build mode přes RMB) od běžného drag pan. Threshold 4 px
+  // brání mylné detekci dragu při drobném zachvění myši (typický UX práh).
   let dragActive = false;
   let dragLastX = 0;
   let dragLastY = 0;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragMoved = false;
+  let dragButton = -1;
+  const DRAG_THRESHOLD_PX = 4;
 
   target.addEventListener('mousedown', (e) => {
     if (e.button === 0) {
-      // ── Levé tlačítko = klik na tile (Fáze 2.2.4 + 2.2.5) ───────────
-      // 1) Pickni tile pod kurzorem.
-      // 2) Pokud má resource → sběr (resource zmizí, inventář++).
-      // 3) Selektor se přesune na klikntý tile (UX feedback i bez sběru).
-      // 4) Klik mimo grid → deselect.
+      // ── Levé tlačítko (Fáze 2.2.4 + 2.2.5 + 5.1) ────────────────────
+      // Větvení: build mode → place budovu / harvest mode → sběr resource.
       const tile = pickTileAt(e.clientX, e.clientY);
       if (tile === null) {
-        selectedTile = null;
-        updateSelectionGraphic();
+        // Klik mimo grid: v harvest módu deselect; v build módu nic (ghost
+        // už beztak nebyl vidět).
+        if (!buildMode.isActive()) {
+          selectedTile = null;
+          updateSelectionGraphic();
+        }
         return;
       }
 
+      if (buildMode.isActive()) {
+        // ── Build mode: pokus o placement ─────────────────────────
+        // canPlaceBuilding je single source of truth pro validaci (sdílená
+        // s ghost preview tint). Pokud invalid, ghost už byl červený → žádný
+        // další feedback.
+        const typeId = buildMode.getSelectedType();
+        if (canPlaceBuilding(grid, tile.i, tile.j, typeId)) {
+          grid.placeBuilding(typeId, tile.i, tile.j);
+          // Po umístění je tile obsazený → ghost na něm musí přepnout na red.
+          updateHover(e.clientX, e.clientY);
+        }
+        return;
+      }
+
+      // ── Harvest mode (default) ─────────────────────────────────
+      // 1) Sběr resource (pokud na tile je) → inventář++.
+      // 2) Selektor se přesune na klikntý tile (UX feedback i bez sběru).
       const harvested = grid.harvest(tile.i, tile.j);
       if (harvested !== null) {
         const def = RESOURCE_TYPES[harvested];
@@ -200,10 +257,15 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
       selectedTile = tile;
       updateSelectionGraphic();
     } else if (e.button === 1 || e.button === 2) {
-      // Středové / pravé tlačítko = drag pan kamery
+      // Středové / pravé tlačítko = drag pan kamery (start).
+      // Inicializace movement trackingu pro odlišení klik vs drag (viz mouseup).
       dragActive = true;
+      dragMoved = false;
+      dragButton = e.button;
       dragLastX = e.clientX;
       dragLastY = e.clientY;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
       target.style.cursor = 'grabbing';
       e.preventDefault();
     }
@@ -211,7 +273,13 @@ export function setupInput(ctx: InputContext): (dt: number) => void {
 
   window.addEventListener('mouseup', () => {
     if (dragActive) {
+      // RMB klik bez dragu (Fáze 5.1) — alternativní exit z build módu.
+      // Threshold v DRAG_THRESHOLD_PX rozlišuje "klik" (= !dragMoved) od panu.
+      if (!dragMoved && dragButton === 2 && buildMode.isActive()) {
+        buildMode.exit();
+      }
       dragActive = false;
+      dragButton = -1;
       target.style.cursor = 'default';
     }
   });

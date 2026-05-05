@@ -2,12 +2,13 @@
 
 ## Now
 
-(prázdné — Fáze 4 dokončena, čeká rozhodnutí o Fázi 5)
+(prázdné — Fáze 5.1 dokončena, čeká rozhodnutí o dalším kroku)
 
-## Next — Fáze 5 kandidáti
-- **Movement** — postavy/budovy na gridu, click-to-move s pathfindingem nad heightmap.
-- **Stavba budov** — placement rule (z, terrain type, no cliff edges), production logic.
-- **První ticking system** — např. resource regenerace (strom doroste za N tiků) — ověří sim infrastrukturu na reálném use-case.
+## Next — kandidáti na Fázi 5.2
+- **Production tick** — mine se zaregistruje jako `TickingSystem` v `Sim`, každých N tiků těží IRON/STONE → inventář. **První reálný use-case sim infrastruktury.**
+- **Druhý typ budovy** — ověří, že přidání nového typu je triviální (test conceptual integrity recipe / build-mode / canPlaceBuilding pipeline).
+- **Demolice budovy** — UX (dedikovaný demolice mode? Shift+klik?). API už hotové (`grid.removeBuilding(id)`).
+- **Movement** — postavy/budovy se hýbou, click-to-move s pathfindingem nad heightmap.
 - **Nepřekonatelnost** — `IMPASSABLE_THRESHOLD` rule pro útesy (gameplay constraint).
 
 ## Later
@@ -15,12 +16,23 @@
 - **Resource regenerace** — strom doroste za N sekund (vyžaduje game-clock / tick simulaci).
 - **Stone/iron varianty** — analogicky stromu (3+ provedení per typ).
 - **Auto-tiling** (Wang / blob tiles) pro hraniční přechody mezi tile typy.
+- **Multi-tile budovy** — až bude smysluplný use-case (rafinérie 2×2). Refaktor `Building.i,j` → `tiles[]`.
 
 ## Parking (až bude chuť)
 - [ ] **Q-diary** — DIARY.md / DONE.md / GLOSSARY.md ve stylu Stickman, nebo dál KISS?
-- [ ] Další žánrové prvky (těžba budovou, výroba, dopravníky, …)
+- [ ] **DRY pro `createTileSprite/createResourceSprite/createBuildingSprite`** — 3× identický kód v `tiles.ts`, refaktorovat na obecný `createCachedSprite(cache, typeId, variantIndex)`.
+- [ ] Další žánrové prvky (výroba, dopravníky, sklady, …)
 
 ## Done
+- [x] **Fáze 5.1 — Stavba budov: mine**
+  - `src/building.ts` — typy + `canPlaceBuilding` (pure function nad `GridLike` interface, cyklus importů zlomen přes type-only)
+  - `src/buildings.ts` — `Buildings` registr, `Map<id, Building>`, `register/unregister/get`
+  - `src/building-recipes.ts` — `MINE_RECIPE` (low-poly drill tower: ocelový podstavec + pilíř + oranžová špička)
+  - `src/build-mode.ts` — `BuildMode` třída, ghost sprite (alpha 0.55, tint bílá/červená dle validity)
+  - `grid.ts` rozšíření — `tileBuilding[i][j]`, `placeBuilding/removeBuilding/getBuildingAt/getResourceAt`. `sortableChildren = true` + `zIndex = i+j` (correct z-order pro dynamicky přidávané budovy po init)
+  - `input.ts` rozšíření — klávesa `B` toggle, ghost preview v hover, klik větvení (build/harvest), Esc i RMB klik (bez dragu, threshold 4 px) exit
+  - `hud.ts` — `BUILD: mine` řádek viditelný jen v build módu
+  - Pravidla pro mine: tile musí mít resource `IRON` nebo `STONE` + nesmí mít jinou budovu. Sedne na výšku tile (žádný flatten). Bez demolice v UX (preventivně připravený `removeBuilding` API).
 - [x] **Fáze 4 — Tick simulace (kostra)**
   - `src/sim.ts` — `Sim` třída, accumulator pattern (Glenn Fiedler), `TPS = 30`, `MAX_TICKS_PER_FRAME = 60` (cap proti spirale of death), monotónní `tickCount`
   - Speed multipliery 0/1×/10×/100× (`SpeedMultiplier` type), pauza nuluje accumulator (po unpause se ticky nedoženou)

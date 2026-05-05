@@ -21,7 +21,10 @@ import { createInventory } from './inventory.js';
 import { buildTileCache } from './render-cache.js';
 import { RESOURCE_RECIPES } from './recipes.js';
 import { TILE_RECIPES } from './tile-recipes.js';
+import { BUILDING_RECIPES } from './building-recipes.js';
 import { Sim } from './sim.js';
+import { Buildings } from './buildings.js';
+import { BuildMode } from './build-mode.js';
 
 async function main(): Promise<void> {
   // ── PIXI Application ─────────────────────────────────────────────────
@@ -47,22 +50,29 @@ async function main(): Promise<void> {
   const world = new Container();
   app.stage.addChild(world);
 
-  // ── Render cache (Fáze 3.1 + 3.2) ────────────────────────────────
-  // Pre-rendering všech recipes (tile typy + resources s variantami) do
+  // ── Render cache (Fáze 3.1 + 3.2 + 5.1) ──────────────────────────
+  // Pre-rendering všech recipes (tile typy + resources + buildings) do
   // RenderTexture. Pak per-tile sprite jen referuje texturu — GPU batch
   // friendly, low-poly 3D look. Stejná struktura cache (CachedSprite[][])
-  // pro tile i resource → reuse jednoho builderu.
+  // pro tile / resource / building → reuse jednoho builderu.
   //   - tileCache:     8 typů × 3 varianty = 24 textur
   //   - resourceCache: tree (5 variant) + stone (1) + iron (1) = 7 textur
+  //   - buildingCache: mine (1 varianta) = 1 textura
   const tileCache     = buildTileCache(app.renderer, TILE_RECIPES);
   const resourceCache = buildTileCache(app.renderer, RESOURCE_RECIPES);
+  const buildingCache = buildTileCache(app.renderer, BUILDING_RECIPES);
+
+  // ── Buildings registr (Fáze 5.1) ─────────────────────────────────
+  // Centrální Map<id, Building>. Sdílená instance — Grid drží referenci,
+  // budoucí systémy (production tick, save/load) také.
+  const buildings = new Buildings();
 
   // ── Grid ──────────────────────────────────────────────────────────
   // Seed je deterministický — chceš jinou mapu? Změň seed.
   // forceTypeId — pokud zadáno, všechny dlaždice stejného typu (debug).
   const SEED = 0x15ce7ec;
   const FORCE_TYPE: number | undefined = undefined;
-  const grid = new Grid(SEED, tileCache, resourceCache, FORCE_TYPE);
+  const grid = new Grid(SEED, tileCache, resourceCache, buildingCache, buildings, FORCE_TYPE);
   world.addChild(grid.container);
 
   // ── Selection (vybraná dlaždice) ──────────────────────────────────
@@ -114,6 +124,11 @@ async function main(): Promise<void> {
   // 0×/1×/10×/100×. Žádné systémy zatím — jen běží čítač pro HUD.
   const sim = new Sim();
 
+  // ── BuildMode (Fáze 5.1) ────────────────────────────────────────
+  // UI/UX pro stavbu budov. Ghost preview žije v `world` containeru, aby
+  // se transformoval s kamerou. Klávesa B v input.ts ho přepíná.
+  const buildMode = new BuildMode(world, buildingCache);
+
   // ── Input ────────────────────────────────────────────────────────
   const inputUpdate = setupInput({
     camera,
@@ -123,11 +138,12 @@ async function main(): Promise<void> {
     selection,
     inventory,
     sim,
+    buildMode,
     target: app.canvas,
   });
 
   // ── HUD ──────────────────────────────────────────────────────────
-  const hud = new Hud('hud', inventory, sim);
+  const hud = new Hud('hud', inventory, sim, buildMode);
 
   // ── Animační smyčka ─────────────────────────────────────────────
   // PixiJS ticker volá callback ~60× za sekundu (resp. monitor refresh rate).

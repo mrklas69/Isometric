@@ -9,20 +9,23 @@
 import type { Inventory } from './inventory.js';
 import type { Sim } from './sim.js';
 import { TPS } from './sim.js';
+import type { BuildMode } from './build-mode.js';
 
 export class Hud {
   private readonly el: HTMLElement;
   private readonly inventory: Inventory;   // sdílená reference (z main.ts)
   private readonly sim: Sim;               // sdílená reference (z main.ts)
+  private readonly buildMode: BuildMode;   // sdílená reference (z main.ts)
   private startTime = 0;       // ms timestamp začátku hry (performance.now())
   private hoverText = '';      // " | (3, 5) z=7 grass" nebo ""
 
-  constructor(elementId: string, inventory: Inventory, sim: Sim) {
+  constructor(elementId: string, inventory: Inventory, sim: Sim, buildMode: BuildMode) {
     const el = document.getElementById(elementId);
     if (!el) throw new Error(`HUD element #${elementId} nenalezen`);
     this.el = el;
     this.inventory = inventory;
     this.sim = sim;
+    this.buildMode = buildMode;
 
     this.startTime = performance.now();
 
@@ -54,6 +57,11 @@ export class Hud {
     const speedText = speed === 0 ? 'PAUSED' : `${speed}×`;
     const simText = ` | ${speedText} tick ${this.sim.getTickCount()} (${this.sim.getMeasuredTps()}/${TPS} tps)`;
 
-    this.el.textContent = `${mm}:${ss}${this.hoverText}${invText}${simText}`;
+    // Build mode (Fáze 5.1) — `BUILD: mine` viditelné jen když je active.
+    const buildText = this.buildMode.isActive()
+      ? ` | BUILD: ${this.buildMode.getSelectedTypeName()}`
+      : '';
+
+    this.el.textContent = `${mm}:${ss}${this.hoverText}${invText}${simText}${buildText}`;
   }
 }

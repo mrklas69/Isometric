@@ -14,10 +14,12 @@ import type { Sprite, Graphics } from 'pixi.js';
 import { TILE_TYPES } from './palette.js';
 import { RESOURCE_TREE, RESOURCE_IRON, RESOURCE_STONE } from './resource.js';
 import { tileToScreen, PIXELS_PER_LEVEL, HALF_H } from './iso.js';
-import { createTileSprite, createCliffGraphic, createResourceSprite } from './tiles.js';
+import { createTileSprite, createCliffGraphic, createResourceSprite, createBuildingSprite } from './tiles.js';
 import type { CachedSprite } from './render-cache.js';
 import { TILE_VARIANTS_PER_TYPE } from './tile-recipes.js';
 import { signedNoise2D, hash2 } from './noise.js';
+import type { Buildings } from './buildings.js';
+import type { Building } from './building.js';
 
 // =============================================================================
 // Mapping height + (i, j) → tile type.
@@ -166,23 +168,55 @@ export class Grid {
   private readonly tileResourceOverlay: (Sprite | null)[][];
 
   /**
-   * @param seed           deterministický seed pro náhodné rozhožení tile typů
-   * @param tileCache      pre-rendered tile sprites (z buildTileCache).
-   *                        Index = `[typeId][variantIndex]`.
-   * @param resourceCache  pre-rendered resource sprites (z buildRecipeCache).
-   *                        Index = RESOURCE_* konstanta (RESOURCE_TREE/IRON/STONE).
-   * @param forceTypeId    pokud zadáno, VŠECHNY dlaždice budou tohoto typu (debug).
+   * Lookup buildingId per tile — `tileBuilding[i][j]` = id v Buildings registru,
+   * nebo null pokud tile nemá budovu. Slouží jako spatial index pro
+   * canPlaceBuilding (kdo stojí na (i, j) → O(1) bez iterace přes všechny budovy).
+   */
+  private readonly tileBuilding: (number | null)[][];
+
+  /** Lookup Sprite per tile pro building (= viz tileResourceOverlay analogie). */
+  private readonly tileBuildingSprite: (Sprite | null)[][];
+
+  /** Centrální building registr — primary store dat budov. */
+  private readonly buildings: Buildings;
+
+  /** Pre-rendered building textures — cache[typeId][variantIndex]. */
+  private readonly buildingCache: ReadonlyArray<ReadonlyArray<CachedSprite>>;
+
+  /**
+   * @param seed            deterministický seed pro náhodné rozhožení tile typů
+   * @param tileCache       pre-rendered tile sprites (z buildTileCache).
+   *                          Index = `[typeId][variantIndex]`.
+   * @param resourceCache   pre-rendered resource sprites.
+   *                          Index = RESOURCE_* konstanta (RESOURCE_TREE/IRON/STONE).
+   * @param buildingCache   pre-rendered building sprites.
+   *                          Index = BUILDING_* konstanta (BUILDING_MINE).
+   * @param buildings       centrální building registr (sdílená instance z main.ts)
+   * @param forceTypeId     pokud zadáno, VŠECHNY dlaždice budou tohoto typu (debug).
    */
   constructor(
     seed: number,
     tileCache: ReadonlyArray<ReadonlyArray<CachedSprite>>,
     resourceCache: ReadonlyArray<ReadonlyArray<CachedSprite>>,
+    buildingCache: ReadonlyArray<ReadonlyArray<CachedSprite>>,
+    buildings: Buildings,
     forceTypeId?: number,
   ) {
+    this.buildings = buildings;
+    this.buildingCache = buildingCache;
+
     this.container = new Container();
-    // sortableChildren = false — pořadí addChild() určuje z-order. Renderujeme
-    // dlaždice "zezadu dopředu" (j+i ascending), takže je default order OK.
-    this.container.sortableChildren = false;
+    // sortableChildren = true — children se třídí podle zIndex před každým render.
+    // Důvod: budovy se přidávají DYNAMICKY po inicializaci gridu (= placeBuilding
+    // při klik), takže prosté pořadí addChild by je dalo nahoru nad sousední tile
+    // s vyšším (i+j). Z-order musí respektovat (i+j) ASC bez ohledu na čas
+    // přidání. Nastavíme zIndex = i+j na všechny children (sprite, cliff,
+    // overlay, building) — Pixi je seřadí.
+    //
+    // Trade-off: Pixi sortuje children před každým render — pro 10k+ children
+    // měřitelná zátěž. Pokud se ukáže jako bottleneck, refaktor na per-row
+    // containers (= jeden container per (i+j) bucket, sortableChildren=false).
+    this.container.sortableChildren = true;
 
     // Inicializace 2D polí.
     this.tileType = [];
@@ -191,6 +225,8 @@ export class Grid {
     this.tileSprites = [];
     this.tileCliffs = [];
     this.tileResourceOverlay = [];
+    this.tileBuilding = [];
+    this.tileBuildingSprite = [];
     for (let i = 0; i < GRID_SIZE; i++) {
       this.tileType[i] = [];
       this.tileHeight[i] = [];
@@ -198,6 +234,8 @@ export class Grid {
       this.tileSprites[i] = [];
       this.tileCliffs[i] = [];
       this.tileResourceOverlay[i] = [];
+      this.tileBuilding[i] = [];
+      this.tileBuildingSprite[i] = [];
     }
 
     // ── Generování výškové mapy ─────────────────────────────────────
@@ -257,6 +295,8 @@ export class Grid {
         // Sprite anchor je v lokál (0, 0, 0) recipe = STŘED tile. Posun o
         // +HALF_H umístí střed na (x, y + HALF_H), tj. střed top diamondu.
         sprite.position.set(x, y + HALF_H);
+        // zIndex = sum (= i+j) → sortableChildren třídí back-to-front.
+        sprite.zIndex = sum;
         this.container.addChild(sprite);
         this.tileSprites[i]![j] = sprite;
 
@@ -267,6 +307,7 @@ export class Grid {
           // Cliff lokál (0, 0) = top corner tile, takže pozice (x, y) přímo
           // (= bez +HALF_H offsetu, který je jen pro sprite-anchor convention).
           cliff.position.set(x, y);
+          cliff.zIndex = sum;
           this.container.addChild(cliff);
         }
         this.tileCliffs[i]![j] = cliff;
@@ -289,11 +330,16 @@ export class Grid {
           // tile. `tileToScreen` vrací top corner; HALF_H je posun na střed.
           const overlay = createResourceSprite(resourceTypeId, resourceVariant, resourceCache);
           overlay.position.set(x, y + HALF_H);
+          overlay.zIndex = sum;
           this.container.addChild(overlay);
           this.tileResourceOverlay[i]![j] = overlay;
         } else {
           this.tileResourceOverlay[i]![j] = null;
         }
+
+        // Buildings — žádná na startu (přidávají se přes placeBuilding).
+        this.tileBuilding[i]![j] = null;
+        this.tileBuildingSprite[i]![j] = null;
       }
     }
   }
@@ -339,6 +385,80 @@ export class Grid {
     const id = this.getTypeAt(i, j);
     if (id === null) return null;
     return TILE_TYPES[id]?.name ?? null;
+  }
+
+  // =============================================================================
+  // Building API (Fáze 5.1)
+  // =============================================================================
+
+  /** Bezpečný getter — vrátí typeId resource na (i, j), nebo null. */
+  getResourceAt(i: number, j: number): number | null {
+    if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) return null;
+    return this.tileResource[i]?.[j] ?? null;
+  }
+
+  /** Bezpečný getter — vrátí buildingId na (i, j), nebo null pokud žádná není. */
+  getBuildingAt(i: number, j: number): number | null {
+    if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) return null;
+    return this.tileBuilding[i]?.[j] ?? null;
+  }
+
+  /**
+   * Umístí novou budovu daného typu na tile (i, j).
+   *
+   * **Validace zde NEBÉŘE — caller musí předem zavolat `canPlaceBuilding(...)`.**
+   * Pokud se přesto pokusí umístit na obsazený / OOB tile, vrátí null.
+   *
+   * Co se stane:
+   *   1. Buildings registrace → nové id
+   *   2. Sprite z buildingCache → addChild do container (zIndex = i+j)
+   *   3. tileBuilding[i][j] = id, tileBuildingSprite[i][j] = sprite
+   *
+   * Resource na tile zůstává (mine ho bude později těžit, ne ničit).
+   */
+  placeBuilding(typeId: number, i: number, j: number): Building | null {
+    if (i < 0 || i >= GRID_SIZE || j < 0 || j >= GRID_SIZE) return null;
+    if (this.tileBuilding[i]![j] !== null) return null;
+
+    // 1. Register v centrálním store.
+    const b = this.buildings.register(i, j, typeId);
+
+    // 2. Sprite z cache. Pro MVP každá budova má 1 variantu.
+    const sprite = createBuildingSprite(typeId, 0, this.buildingCache);
+    const z = this.tileHeight[i]![j]!;
+    const { x, y } = tileToScreen(i, j, z);
+    // Stejné pozicování jako resource overlay — anchor v lokál (0,0,0) =
+    // ground střed → +HALF_H umístí střed top diamondu.
+    sprite.position.set(x, y + HALF_H);
+    sprite.zIndex = i + j;
+    this.container.addChild(sprite);
+
+    // 3. Spatial index update.
+    this.tileBuilding[i]![j] = b.id;
+    this.tileBuildingSprite[i]![j] = sprite;
+
+    return b;
+  }
+
+  /**
+   * Odstraní budovu po id. Vrátí true pokud existovala.
+   *
+   * Pro MVP zatím nikdo nevolá (demolice není v 5.1). Implementováno preventivně,
+   * abychom symetricky kryli place + remove a měli to ready pro 5.4 demolice.
+   */
+  removeBuilding(id: number): boolean {
+    const b = this.buildings.get(id);
+    if (!b) return false;
+
+    const sprite = this.tileBuildingSprite[b.i]?.[b.j];
+    if (sprite) {
+      // texture: false — sdílená textura z cache (jako u resource).
+      sprite.destroy({ texture: false });
+    }
+    this.tileBuildingSprite[b.i]![b.j] = null;
+    this.tileBuilding[b.i]![b.j] = null;
+
+    return this.buildings.unregister(id);
   }
 }
 

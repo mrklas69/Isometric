@@ -149,6 +149,34 @@ export function createResourceSprite(
 }
 
 /**
+ * Vyrobí Sprite pro budovu z pre-renderované cache (Fáze 5.1).
+ *
+ * Stejná struktura jako resource cache — `cache[buildingTypeId][variantIndex]`.
+ * Pro MVP každý typ budovy má 1 variantu (`variantIndex = 0`).
+ *
+ * @param buildingTypeId  index v BUILDING_TYPES (BUILDING_MINE, …)
+ * @param variantIndex    index varianty (typicky 0)
+ * @param cache           `CachedSprite[][]` z `buildTileCache(BUILDING_RECIPES)`
+ */
+export function createBuildingSprite(
+  buildingTypeId: number,
+  variantIndex: number,
+  cache: ReadonlyArray<ReadonlyArray<CachedSprite>>,
+): Sprite {
+  const variants = cache[buildingTypeId];
+  if (!variants) {
+    throw new Error(`Chybí cache pro budovu ${buildingTypeId}`);
+  }
+  const cached = variants[variantIndex];
+  if (!cached) {
+    throw new Error(`Chybí variant ${variantIndex} pro budovu ${buildingTypeId}`);
+  }
+  const sprite = new Sprite(cached.texture);
+  sprite.anchor.set(cached.anchorX, cached.anchorY);
+  return sprite;
+}
+
+/**
  * Vyrobí Graphics pro highlight dlaždice pod kurzorem.
  * Kosočtverec stejné velikosti jako diamond top, s rámečkem a polopruhlednou
  * výplní. Top corner v (0, 0), takže `position.set(screenX, screenY)`
